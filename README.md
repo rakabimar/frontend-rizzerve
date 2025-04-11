@@ -2,7 +2,10 @@
 
 URL: https://frontend-rizzerve.vercel.app/
 
---
+Untuk CD pada frontend-rizzerve, kami melakukan deployment pada vercel. Vercel melakukan deployment secara otomatis ketika ada commit pada branch utama (master). 
+Proses re-deploy pada vercel tidak akan dilakukan apabila terdapat github actions yang failed. Jadi, pembuatan script workflows untuk auto deployment ke vercel, tidak perlu dilakukan.
+
+----
 
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
