@@ -37,14 +37,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const parsedUser = JSON.parse(storedUser)
           setUser(parsedUser)
 
-          // Redirect based on role
+          // Redirect admin to dashboard
           if (parsedUser.role === "admin") {
             router.push("/admin/dashboard")
-          } else {
-            router.push("/customer/dashboard")
           }
-        } else {
-          router.push("/auth/login")
         }
       } catch (error) {
         console.error("Authentication check failed:", error)

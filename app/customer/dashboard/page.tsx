@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { LogOut, Plus, Search, ShoppingCart } from "lucide-react"
+import { Plus, Search, ShoppingCart } from "lucide-react"
 import Image from "next/image"
 
 export default function CustomerDashboardPage() {
@@ -19,15 +19,14 @@ export default function CustomerDashboardPage() {
   const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
-    if (!user) {
-      router.push("/auth/login")
+    // Check if table number is selected
+    const tableNum = localStorage.getItem("tableNumber")
+    if (!tableNum) {
+      router.push("/customer/table-select")
       return
     }
 
-    if (user.role !== "customer") {
-      router.push("/admin/dashboard")
-      return
-    }
+    setTableNumber(tableNum)
 
     // Load menu items
     const dummyMenuItems = [
@@ -89,7 +88,7 @@ export default function CustomerDashboardPage() {
 
     setMenuItems(dummyMenuItems)
     setLoading(false)
-  }, [user, router])
+  }, [router])
 
   const addToCart = (item: any) => {
     setCartItems((prev) => {
@@ -117,19 +116,16 @@ export default function CustomerDashboardPage() {
     setCartItems((prev) => prev.map((item) => (item.id === id ? { ...item, quantity } : item)))
   }
 
+  // Add checkout button and cart storage
   const placeOrder = () => {
-    if (!tableNumber) {
-      alert("Please enter a table number")
-      return
-    }
-
     if (cartItems.length === 0) {
       alert("Your cart is empty")
       return
     }
 
-    alert(`Order placed for table ${tableNumber}!`)
-    setCartItems([])
+    // Save cart to localStorage
+    localStorage.setItem("cart", JSON.stringify(cartItems))
+    router.push("/customer/checkout")
   }
 
   const filteredMenuItems = menuItems.filter(
@@ -153,10 +149,17 @@ export default function CustomerDashboardPage() {
               <h1 className="text-2xl font-bold text-rose-600">RIZZerve</h1>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">Welcome, {user?.name}</span>
-              <Button variant="ghost" size="sm" onClick={logout} className="flex items-center gap-1">
-                <LogOut className="h-4 w-4" />
-                Logout
+              <span className="text-sm text-gray-600">Table #{tableNumber}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  localStorage.removeItem("tableNumber")
+                  router.push("/customer/table-select")
+                }}
+                className="flex items-center gap-1"
+              >
+                Change Table
               </Button>
             </div>
           </div>
@@ -226,6 +229,7 @@ export default function CustomerDashboardPage() {
                     placeholder="Enter table number"
                     value={tableNumber}
                     onChange={(e) => setTableNumber(e.target.value)}
+                    disabled
                   />
                 </div>
 

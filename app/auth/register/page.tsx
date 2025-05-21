@@ -42,7 +42,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md p-4">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-rose-600">RIZZerve</h1>
-          <p className="text-gray-600">Restaurant Ordering System</p>
+          <p className="text-gray-600">Admin Registration</p>
         </div>
 
         <Card>

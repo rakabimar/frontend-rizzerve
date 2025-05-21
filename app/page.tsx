@@ -1,7 +1,5 @@
 "use client"
 
-import { useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { useAuth } from "@/context/auth-context"
 import { Button } from "@/components/ui/button"
 import { ArrowRight } from "lucide-react"
@@ -9,24 +7,8 @@ import Image from "next/image"
 import Link from "next/link"
 
 export default function Home() {
-  const { user, loading } = useAuth()
-  const router = useRouter()
+  const { user } = useAuth()
 
-  useEffect(() => {
-    if (!loading) {
-      if (user) {
-        if (user.role === "admin") {
-          router.push("/admin/dashboard")
-        } else {
-          router.push("/customer/dashboard")
-        }
-      } else {
-        router.push("/auth/login")
-      }
-    }
-  }, [user, loading, router])
-
-  // This page just redirects
   return (
     <div className="container mx-auto px-4 py-12">
       {/* Hero Section */}
@@ -37,16 +19,24 @@ export default function Home() {
           </h1>
           <p className="text-xl text-gray-600">Enjoy your favorite meals with just a tap. No waiting, no hassle.</p>
           <div className="flex gap-4">
-            <Link href="/menu">
+            <Link href="/customer/table-select">
               <Button size="lg" className="bg-rose-600 hover:bg-rose-700">
-                View Menu <ArrowRight className="ml-2 h-4 w-4" />
+                Order Now <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
-            <Link href="/auth/login">
-              <Button size="lg" variant="outline">
-                Login
-              </Button>
-            </Link>
+            {!user ? (
+              <Link href="/auth/login">
+                <Button size="lg" variant="outline">
+                  Admin Login
+                </Button>
+              </Link>
+            ) : user.role === "admin" ? (
+              <Link href="/admin/dashboard">
+                <Button size="lg" variant="outline">
+                  Admin Dashboard
+                </Button>
+              </Link>
+            ) : null}
           </div>
         </div>
         <div className="flex-1 relative h-[400px] w-full rounded-xl overflow-hidden">
@@ -134,9 +124,9 @@ export default function Home() {
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
             Browse our menu and enjoy a delicious meal delivered right to your table.
           </p>
-          <Link href="/menu">
+          <Link href="/customer/table-select">
             <Button size="lg" className="mt-4 bg-rose-600 hover:bg-rose-700">
-              View Menu
+              Order Now
             </Button>
           </Link>
         </div>
