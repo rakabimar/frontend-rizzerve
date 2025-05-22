@@ -3,20 +3,20 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
+import { API_URLS } from "@/lib/constants"
 
 type User = {
-  id: string
-  name: string
+  adminId: string
   username: string
-  email: string
-  role: "admin" | "customer"
+  name: string
+  token: string
 }
 
 type AuthContextType = {
   user: User | null
   loading: boolean
   login: (username: string, password: string) => Promise<void>
-  register: (name: string, username: string, email: string, password: string) => Promise<void>
+  register: (name: string, username: string, password: string) => Promise<void>
   logout: () => void
 }
 
@@ -32,14 +32,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check if user is logged in
     const checkAuth = async () => {
       try {
-        const storedUser = localStorage.getItem("user")
-        if (storedUser) {
-          const parsedUser = JSON.parse(storedUser)
-          setUser(parsedUser)
+        const storedToken = localStorage.getItem("auth_token")
+        if (storedToken) {
+          const storedUser = localStorage.getItem("user")
+          if (storedUser) {
+            const parsedUser = JSON.parse(storedUser)
+            setUser(parsedUser)
 
-          // Redirect admin to dashboard
-          if (parsedUser.role === "admin") {
-            router.push("/admin/dashboard")
+            // Validate token by fetching profile
+            try {
+              const response = await fetch(`${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_PROFILE_API_URL}`, {
+                headers: {
+                  Authorization: `Bearer ${parsedUser.token}`,
+                },
+              })
+
+              if (!response.ok) {
+                // Token is invalid, log out
+                logout()
+              }
+            } catch (error) {
+              console.error("Error validating token:", error)
+            }
           }
         }
       } catch (error) {
@@ -55,35 +69,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     setLoading(true)
     try {
-      // In a real app, this would be a fetch to your backend
-      // Simulating API call
-      const response = {
-        id: "1",
-        name: username === "admin" ? "Admin User" : "Customer User",
-        username,
-        email: `${username}@example.com`,
-        role: username === "admin" ? "admin" : ("customer" as "admin" | "customer"),
+      console.log(`Attempting to login to: ${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_LOGIN_API_URL}`)
+
+      const response = await fetch(`${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_LOGIN_API_URL}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+      })
+
+      console.log("Login response status:", response.status)
+
+      // Check if the response is ok before trying to parse JSON
+      if (!response.ok) {
+        // Try to parse error response if available
+        let errorMessage = "Login failed"
+        try {
+          const errorText = await response.text()
+          console.log("Error response text:", errorText)
+
+          if (errorText) {
+            try {
+              const errorData = JSON.parse(errorText)
+              errorMessage = errorData.message || "Login failed"
+            } catch (parseError) {
+              console.error("Error parsing error response:", parseError)
+              // If we can't parse the error, use the raw text if available
+              errorMessage = errorText || "Login failed"
+            }
+          }
+        } catch (textError) {
+          console.error("Error reading response text:", textError)
+        }
+
+        throw new Error(errorMessage)
       }
 
-      setUser(response)
-      localStorage.setItem("user", JSON.stringify(response))
+      // Check if response has content before parsing
+      const responseText = await response.text()
+      console.log("Response text:", responseText)
+
+      if (!responseText) {
+        throw new Error("Empty response received from server")
+      }
+
+      // Parse the JSON response
+      let userData
+      try {
+        userData = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error("Error parsing JSON response:", parseError)
+        throw new Error("Invalid response format from server")
+      }
+
+      // Store user data and token
+      setUser(userData)
+      localStorage.setItem("auth_token", userData.token)
+      localStorage.setItem("user", JSON.stringify(userData))
 
       toast({
         title: "Login successful",
-        description: `Welcome back, ${response.name}!`,
+        description: `Welcome back, ${userData.name}!`,
       })
 
-      // Redirect based on role
-      if (response.role === "admin") {
-        router.push("/admin/dashboard")
-      } else {
-        router.push("/customer/dashboard")
-      }
+      // Redirect to admin dashboard
+      router.push("/admin/dashboard")
     } catch (error) {
       console.error("Login failed:", error)
       toast({
         title: "Login failed",
-        description: "Invalid username or password",
+        description: error instanceof Error ? error.message : "Invalid username or password",
         variant: "destructive",
       })
       throw error
@@ -92,34 +148,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const register = async (name: string, username: string, email: string, password: string) => {
+  const register = async (name: string, username: string, password: string) => {
     setLoading(true)
     try {
-      // In a real app, this would be a fetch to your backend
-      // Simulating API call
-      const response = {
-        id: "2",
-        name,
-        username,
-        email,
-        role: "customer" as "admin" | "customer",
+      console.log(`Attempting to register to: ${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_REGISTER_API_URL}`)
+
+      const response = await fetch(`${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_REGISTER_API_URL}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, username, password }),
+      })
+
+      console.log("Register response status:", response.status)
+
+      // Check if the response is ok before trying to parse JSON
+      if (!response.ok) {
+        // Try to parse error response if available
+        let errorMessage = "Registration failed"
+        try {
+          const errorText = await response.text()
+          console.log("Error response text:", errorText)
+
+          if (errorText) {
+            try {
+              const errorData = JSON.parse(errorText)
+              errorMessage = errorData.message || "Registration failed"
+            } catch (parseError) {
+              console.error("Error parsing error response:", parseError)
+              // If we can't parse the error, use the raw text if available
+              errorMessage = errorText || "Registration failed"
+            }
+          }
+        } catch (textError) {
+          console.error("Error reading response text:", textError)
+        }
+
+        throw new Error(errorMessage)
       }
 
-      setUser(response)
-      localStorage.setItem("user", JSON.stringify(response))
+      // Check if response has content before parsing
+      const responseText = await response.text()
+      console.log("Response text:", responseText)
+
+      if (!responseText) {
+        throw new Error("Empty response received from server")
+      }
+
+      // Parse the JSON response
+      let userData
+      try {
+        userData = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error("Error parsing JSON response:", parseError)
+        throw new Error("Invalid response format from server")
+      }
+
+      // Store user data and token
+      setUser(userData)
+      localStorage.setItem("auth_token", userData.token)
+      localStorage.setItem("user", JSON.stringify(userData))
 
       toast({
         title: "Registration successful",
         description: `Welcome, ${name}!`,
       })
 
-      // Redirect to customer dashboard
-      router.push("/customer/dashboard")
+      // Redirect to admin dashboard
+      router.push("/admin/dashboard")
     } catch (error) {
       console.error("Registration failed:", error)
       toast({
         title: "Registration failed",
-        description: "Could not create account",
+        description: error instanceof Error ? error.message : "Could not create account",
         variant: "destructive",
       })
       throw error
@@ -130,6 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setUser(null)
+    localStorage.removeItem("auth_token")
     localStorage.removeItem("user")
     toast({
       title: "Logged out",

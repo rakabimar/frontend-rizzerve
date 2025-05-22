@@ -8,11 +8,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
+import { API_URLS } from "@/lib/constants"
 
 export default function RegisterPage() {
   const [name, setName] = useState("")
   const [username, setUsername] = useState("")
-  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -28,11 +28,21 @@ export default function RegisterPage() {
       return
     }
 
+    if (username.length < 4) {
+      setError("Username must be at least 4 characters")
+      return
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters")
+      return
+    }
+
     setLoading(true)
     try {
-      await register(name, username, email, password)
+      await register(name, username, password)
     } catch (error) {
-      setError("Registration failed. Please try again.")
+      setError(error instanceof Error ? error.message : "Registration failed. Please try again.")
       setLoading(false)
     }
   }
@@ -73,17 +83,7 @@ export default function RegisterPage() {
                   onChange={(e) => setUsername(e.target.value)}
                   required
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
+                <p className="text-xs text-gray-500">Username must be at least 4 characters</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
@@ -95,6 +95,7 @@ export default function RegisterPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+                <p className="text-xs text-gray-500">Password must be at least 6 characters</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
@@ -112,6 +113,14 @@ export default function RegisterPage() {
                 {loading ? "Creating account..." : "Register"}
               </Button>
             </form>
+            {process.env.NODE_ENV === "development" && (
+              <div className="mt-4 text-xs text-gray-500">
+                <p>
+                  API URL: {API_URLS.AUTH_SERVICE_URL}
+                  {API_URLS.AUTH_REGISTER_API_URL}
+                </p>
+              </div>
+            )}
           </CardContent>
           <CardFooter>
             <div className="text-sm text-center w-full">

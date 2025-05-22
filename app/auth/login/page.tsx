@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
+import { API_URLS } from "@/lib/constants"
 
 export default function LoginPage() {
   const [username, setUsername] = useState("")
@@ -24,7 +25,7 @@ export default function LoginPage() {
     try {
       await login(username, password)
     } catch (error) {
-      setError("Invalid username or password")
+      setError(error instanceof Error ? error.message : "Invalid username or password")
       setLoading(false)
     }
   }
@@ -71,6 +72,14 @@ export default function LoginPage() {
                 {loading ? "Logging in..." : "Login"}
               </Button>
             </form>
+            {process.env.NODE_ENV === "development" && (
+              <div className="mt-4 text-xs text-gray-500">
+                <p>
+                  API URL: {API_URLS.AUTH_SERVICE_URL}
+                  {API_URLS.AUTH_LOGIN_API_URL}
+                </p>
+              </div>
+            )}
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <div className="text-sm text-center text-gray-500">
@@ -78,11 +87,6 @@ export default function LoginPage() {
               <Link href="/auth/register" className="text-rose-600 hover:underline">
                 Register
               </Link>
-            </div>
-            <div className="text-xs text-center text-gray-500">
-              <p>Demo credentials:</p>
-              <p>Admin: username: admin, password: admin</p>
-              <p>Customer: username: customer, password: customer</p>
             </div>
           </CardFooter>
         </Card>
