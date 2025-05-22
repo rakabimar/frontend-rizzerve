@@ -6,13 +6,20 @@ export const API_URLS = {
   AUTH_REGISTER_API_URL: "/api/auth/register",
   AUTH_PROFILE_API_URL: "/api/auth/profile",
 
-  // Other service paths (these will be appended to AUTH_SERVICE_URL)
-  MENU_SERVICE_URL: "/api/menu",
+  // Menu Service
+  MENU_SERVICE_URL: process.env.NEXT_PUBLIC_MENU_SERVICE_URL || "http://localhost:8081",
+  MENU_API_URL: "/menu",
+
+  // Other service paths
   TABLE_SERVICE_URL: "/api/tables",
   ORDER_SERVICE_URL: "/api/orders",
 }
 
 export const USER_ROLES = {
-  ADMIN: "admin",
-  CUSTOMER: "customer",
+  ADMIN: "ROLE_ADMIN",
+}
+
+export enum MenuType {
+  FOOD = "FOOD",
+  DRINK = "DRINK",
 }

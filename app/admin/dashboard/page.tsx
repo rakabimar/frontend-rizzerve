@@ -1,8 +1,8 @@
 "use client"
 
 import type React from "react"
+import { useEffect, useState, useRef } from "react"
 
-import { useEffect, useState } from "react"
 import { useAuth } from "@/context/auth-context"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,12 +14,23 @@ import { Badge } from "@/components/ui/badge"
 import { Clock, DollarSign, Edit, LogOut, Plus, ShoppingBag, Trash2, Users } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { API_URLS } from "@/lib/constants"
+import type { MenuItem } from "@/types/menu"
+import MenuItemDialog from "@/components/menu/menu-item-dialog"
+import DeleteMenuItemDialog from "@/components/menu/delete-menu-item-dialog"
 
 export default function AdminDashboardPage() {
   const { user, logout } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const { toast } = useToast()
+
+  // Add state for refreshing menu items
+  const [menuRefreshTrigger, setMenuRefreshTrigger] = useState(0)
+
+  // Function to trigger menu refresh
+  const refreshMenuItems = () => {
+    setMenuRefreshTrigger((prev) => prev + 1)
+  }
 
   useEffect(() => {
     if (!user) {
@@ -146,12 +157,10 @@ export default function AdminDashboardPage() {
                   <CardTitle>Menu Items</CardTitle>
                   <CardDescription>Add, edit, or remove menu items</CardDescription>
                 </div>
-                <Button className="bg-rose-600 hover:bg-rose-700">
-                  <Plus className="mr-2 h-4 w-4" /> Add Item
-                </Button>
+                <MenuItemsActions onSuccess={refreshMenuItems} />
               </CardHeader>
               <CardContent>
-                <MenuItemsTable />
+                <MenuItemsTable refreshTrigger={menuRefreshTrigger} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -204,6 +213,217 @@ function DashboardCard({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function MenuItemsActions({ onSuccess }: { onSuccess: () => void }) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  return (
+    <>
+      <Button className="bg-rose-600 hover:bg-rose-700" onClick={() => setDialogOpen(true)}>
+        <Plus className="mr-2 h-4 w-4" /> Add Item
+      </Button>
+      <MenuItemDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onSuccess={() => {
+          onSuccess() // Call the refresh function
+          setDialogOpen(false)
+        }}
+      />
+    </>
+  )
+}
+
+function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
+  const { toast } = useToast()
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | undefined>(undefined)
+
+  // Use a ref to avoid double fetching on initial mount
+  const initialFetchCompleted = useRef(false)
+
+  // Define fetchMenuItems outside of useEffect
+  const fetchMenuItems = async () => {
+    setLoading(true)
+    try {
+      console.log("Fetching menu items from:", `${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}`)
+      const response = await fetch(`${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}`)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Error response:", errorText)
+        throw new Error(errorText || "Failed to fetch menu items")
+      }
+
+      const data = await response.json()
+      console.log("Menu items fetched successfully:", data)
+      setMenuItems(data)
+    } catch (error) {
+      console.error("Error fetching menu items:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to load menu items",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Initial fetch on mount
+  useEffect(() => {
+    if (!initialFetchCompleted.current) {
+      fetchMenuItems()
+      initialFetchCompleted.current = true
+    }
+  }, [])
+
+  // Fetch when refresh trigger changes
+  useEffect(() => {
+    // Skip the initial mount since we already fetched above
+    if (initialFetchCompleted.current && refreshTrigger > 0) {
+      fetchMenuItems()
+    }
+  }, [refreshTrigger])
+
+  const handleEdit = (menuItem: MenuItem) => {
+    setSelectedMenuItem(menuItem)
+    setEditDialogOpen(true)
+  }
+
+  const handleDelete = (menuItem: MenuItem) => {
+    setSelectedMenuItem(menuItem)
+    setDeleteDialogOpen(true)
+  }
+
+  const filteredItems = menuItems.filter(
+    (item) =>
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.description.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+
+  // Helper function to determine menu item type
+  const getMenuItemType = (item: MenuItem): string => {
+    if ('isSpicy' in item) return "FOOD";
+    if ('isCold' in item) return "DRINK";
+    return "UNKNOWN";
+  }
+
+  // Helper function to get appropriate badge for the menu type
+  const getMenuTypeBadge = (item: MenuItem) => {
+    const type = getMenuItemType(item);
+    
+    return (
+      <Badge 
+        variant="outline" 
+        className={type === "FOOD" 
+          ? "bg-amber-50 text-amber-700 border-amber-200" 
+          : type === "DRINK" 
+            ? "bg-blue-50 text-blue-700 border-blue-200" 
+            : "bg-gray-50 text-gray-700 border-gray-200"
+        }
+      >
+        {type}
+      </Badge>
+    );
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <Input
+          placeholder="Search menu items..."
+          className="max-w-xs"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8">Loading menu items...</div>
+      ) : menuItems.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="text-gray-500">No menu items found. Add your first menu item to get started.</p>
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="text-gray-500">No menu items match your search.</p>
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Price</TableHead>
+              <TableHead>Availability</TableHead>
+              <TableHead>Attributes</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredItems.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell className="font-medium">{item.name}</TableCell>
+                <TableCell>
+                  {getMenuTypeBadge(item)}
+                </TableCell>
+                <TableCell className="max-w-xs truncate">{item.description}</TableCell>
+                <TableCell>${item.price.toFixed(2)}</TableCell>
+                <TableCell>
+                  {item.available ? (
+                    <Badge className="bg-green-100 text-green-800">Available</Badge>
+                  ) : (
+                    <Badge className="bg-red-100 text-red-800">Unavailable</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {'isSpicy' in item && item.isSpicy && <Badge className="bg-red-100 text-red-800">Spicy</Badge>}
+                  {'isCold' in item && item.isCold && <Badge className="bg-blue-100 text-blue-800">Cold</Badge>}
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(item)}>
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+
+      {/* Edit Dialog */}
+      {selectedMenuItem && (
+        <MenuItemDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          menuItem={selectedMenuItem}
+          onSuccess={fetchMenuItems}
+        />
+      )}
+
+      {/* Delete Dialog */}
+      {selectedMenuItem && (
+        <DeleteMenuItemDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          menuItem={selectedMenuItem}
+          onSuccess={fetchMenuItems}
+        />
+      )}
+    </div>
   )
 }
 
@@ -297,94 +517,6 @@ function OrdersTable() {
                 <div className="flex gap-2">
                   <Button variant="ghost" size="icon">
                     <Edit className="h-4 w-4" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
-
-function MenuItemsTable() {
-  const menuItems = [
-    {
-      id: "1",
-      name: "Spicy Tuna Roll",
-      category: "Sushi",
-      price: 12.99,
-      available: true,
-    },
-    {
-      id: "2",
-      name: "California Roll",
-      category: "Sushi",
-      price: 10.99,
-      available: true,
-    },
-    {
-      id: "3",
-      name: "Miso Soup",
-      category: "Appetizers",
-      price: 4.99,
-      available: true,
-    },
-    {
-      id: "4",
-      name: "Edamame",
-      category: "Appetizers",
-      price: 5.99,
-      available: true,
-    },
-    {
-      id: "5",
-      name: "Chicken Teriyaki",
-      category: "Main",
-      price: 16.99,
-      available: false,
-    },
-  ]
-
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <Input placeholder="Search menu items..." className="max-w-xs" />
-      </div>
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Price</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {menuItems.map((item) => (
-            <TableRow key={item.id}>
-              <TableCell className="font-medium">{item.id}</TableCell>
-              <TableCell>{item.name}</TableCell>
-              <TableCell>{item.category}</TableCell>
-              <TableCell>${item.price.toFixed(2)}</TableCell>
-              <TableCell>
-                {item.available ? (
-                  <Badge className="bg-green-100 text-green-800">Available</Badge>
-                ) : (
-                  <Badge className="bg-red-100 text-red-800">Unavailable</Badge>
-                )}
-              </TableCell>
-              <TableCell>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="icon">
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon">
-                    <Trash2 className="h-4 w-4 text-red-500" />
                   </Button>
                 </div>
               </TableCell>
