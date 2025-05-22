@@ -151,58 +151,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (name: string, username: string, password: string) => {
     setLoading(true)
     try {
-      console.log(`Attempting to register to: ${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_REGISTER_API_URL}`)
+      // Log the exact URL and request body for debugging
+      const url = `${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_REGISTER_API_URL}`
+      const requestBody = { name, username, password }
 
-      const response = await fetch(`${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_REGISTER_API_URL}`, {
+      console.log("Register URL:", url)
+      console.log("Register request body:", requestBody)
+
+      // Make the request exactly as in Postman
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name, username, password }),
+        body: JSON.stringify(requestBody),
       })
 
       console.log("Register response status:", response.status)
 
-      // Check if the response is ok before trying to parse JSON
-      if (!response.ok) {
-        // Try to parse error response if available
-        let errorMessage = "Registration failed"
-        try {
-          const errorText = await response.text()
-          console.log("Error response text:", errorText)
-
-          if (errorText) {
-            try {
-              const errorData = JSON.parse(errorText)
-              errorMessage = errorData.message || "Registration failed"
-            } catch (parseError) {
-              console.error("Error parsing error response:", parseError)
-              // If we can't parse the error, use the raw text if available
-              errorMessage = errorText || "Registration failed"
-            }
-          }
-        } catch (textError) {
-          console.error("Error reading response text:", textError)
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      // Check if response has content before parsing
+      // Get the response text first
       const responseText = await response.text()
-      console.log("Response text:", responseText)
+      console.log("Register response text:", responseText)
 
+      // If response is empty, throw an error
       if (!responseText) {
         throw new Error("Empty response received from server")
       }
 
-      // Parse the JSON response
+      // Try to parse the response as JSON
       let userData
       try {
         userData = JSON.parse(responseText)
+        console.log("Parsed user data:", userData)
       } catch (parseError) {
         console.error("Error parsing JSON response:", parseError)
         throw new Error("Invalid response format from server")
+      }
+
+      // Check if we have the expected data
+      if (!userData.token || !userData.adminId || !userData.username || !userData.name) {
+        console.error("Incomplete user data received:", userData)
+        throw new Error("Incomplete user data received from server")
       }
 
       // Store user data and token
@@ -212,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       toast({
         title: "Registration successful",
-        description: `Welcome, ${name}!`,
+        description: `Welcome, ${userData.name}!`,
       })
 
       // Redirect to admin dashboard
