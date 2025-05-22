@@ -12,11 +12,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Clock, DollarSign, Edit, LogOut, Plus, ShoppingBag, Trash2, Users } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import { API_URLS } from "@/lib/constants"
 
 export default function AdminDashboardPage() {
   const { user, logout } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  const { toast } = useToast()
 
   useEffect(() => {
     if (!user) {
@@ -24,13 +27,38 @@ export default function AdminDashboardPage() {
       return
     }
 
-    if (user.role !== "admin") {
-      router.push("/customer/dashboard")
-      return
+    // Fetch admin profile data
+    const fetchAdminProfile = async () => {
+      try {
+        const response = await fetch(`${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_PROFILE_API_URL}`, {
+          headers: {
+            Authorization: `Bearer ${user.token}`,
+          },
+        })
+
+        if (!response.ok) {
+          // If unauthorized, redirect to login
+          if (response.status === 401) {
+            logout()
+            return
+          }
+          throw new Error("Failed to fetch profile")
+        }
+
+        // Profile data is already in the user object from login/register
+        setLoading(false)
+      } catch (error) {
+        console.error("Error fetching profile:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load profile data",
+          variant: "destructive",
+        })
+      }
     }
 
-    setLoading(false)
-  }, [user, router])
+    fetchAdminProfile()
+  }, [user, router, logout, toast])
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>
