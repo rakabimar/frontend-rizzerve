@@ -59,6 +59,7 @@ export default function AdminDashboardPage() {
       return
     }
 
+    // Fetch admin profile data
     const fetchAdminProfile = async () => {
       try {
         const response = await fetch(`${API_URLS.AUTH_SERVICE_URL}${API_URLS.AUTH_PROFILE_API_URL}`, {
@@ -68,6 +69,7 @@ export default function AdminDashboardPage() {
         })
 
         if (!response.ok) {
+          // If unauthorized, redirect to login
           if (response.status === 401) {
             logout()
             return
@@ -75,9 +77,15 @@ export default function AdminDashboardPage() {
           throw new Error("Failed to fetch profile")
         }
 
+        // Profile data is already in the user object from login/register
         setLoading(false)
-      } catch (_) {
-        toast({ title: "Error", description: "Failed to load profile data", variant: "destructive" })
+      } catch (error) {
+        console.error("Error fetching profile:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load profile data",
+          variant: "destructive",
+        })
       }
     }
 
@@ -249,7 +257,7 @@ function MenuItemsActions({ onSuccess }: { onSuccess: () => void }) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={() => {
-          onSuccess()
+          onSuccess() // Call the refresh function
           setDialogOpen(false)
         }}
       />
@@ -273,11 +281,25 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
   const fetchMenuItems = async () => {
     setLoading(true)
     try {
+      console.log("Fetching menu items from:", `${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}`)
       const response = await fetch(`${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}`)
-      if (!response.ok) throw new Error(await response.text())
-      setMenuItems(await response.json())
+        
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Error response:", errorText)
+        throw new Error(errorText || "Failed to fetch menu items")
+      }
+
+      const data = await response.json()
+      console.log("Menu items fetched successfully:", data)
+      setMenuItems(data)
     } catch (error) {
-      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to load menu items", variant: "destructive" })
+      console.error("Error fetching menu items:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to load menu items",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }
@@ -285,6 +307,7 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
 
   // Initial fetch on mount
   useEffect(() => {
+    // Skip the initial mount since we already fetched above
     if (!initialFetchCompleted.current) {
       fetchMenuItems()
       initialFetchCompleted.current = true
@@ -313,15 +336,17 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.description.toLowerCase().includes(searchTerm.toLowerCase()),
   )
-
+  
+  // Helper function to determine menu item type
   const getMenuItemType = (item: MenuItem): string => {
-    if ('isSpicy' in item) return "FOOD"
-    if ('isCold' in item) return "DRINK"
-    return "UNKNOWN"
+    if ('isSpicy' in item) return "FOOD";
+    if ('isCold' in item) return "DRINK";
+    return "UNKNOWN";
   }
 
+  // Helper function to get appropriate badge for the menu type
   const getMenuTypeBadge = (item: MenuItem) => {
-    const type = getMenuItemType(item)
+    const type = getMenuItemType(item);
 
     return (
       <Badge
@@ -335,8 +360,8 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
       >
         {type}
       </Badge>
-    )
-  }
+    );
+  };
 
   return (
     <div>
@@ -408,6 +433,7 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
         </Table>
       )}
 
+      {/* Edit Dialog */}
       {selectedMenuItem && (
         <MenuItemDialog
           open={editDialogOpen}
@@ -417,6 +443,7 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
         />
       )}
 
+      {/* Delete Dialog */}
       {selectedMenuItem && (
         <DeleteMenuItemDialog
           open={deleteDialogOpen}
