@@ -82,46 +82,55 @@ export default function CustomerDashboardPage() {
             console.log(`Item ${item.name}: isSpicy=${item.isSpicy}, isCold=${item.isCold}, derivedType=${derivedType}`)
 
             // Fetch average rating
-            const averageResponse = await fetch(
-              `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}/average`,
-            )
-
-            // Fetch all ratings for this item to count them
-            const ratingsResponse = await fetch(
-              `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}`,
-            )
-
             let averageRating = 0
             let totalRatings = 0
 
-            // Handle average rating response
-            if (averageResponse.ok) {
-              const averageText = await averageResponse.text()
-              console.log(`Average rating response for item ${item.id}:`, averageText)
+            try {
+              const averageResponse = await fetch(
+                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}/average`,
+                { timeout: 3000 } // Add timeout
+              )
 
-              // The endpoint returns a plain number, not JSON
-              if (averageText && averageText.trim() !== "") {
-                averageRating = Number.parseFloat(averageText)
-                // Handle NaN case
-                if (isNaN(averageRating)) {
-                  averageRating = 0
+              // Fetch all ratings for this item to count them
+              const ratingsResponse = await fetch(
+                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}`,
+                { timeout: 3000 } // Add timeout
+              )
+
+              // Handle average rating response
+              if (averageResponse.ok) {
+                const averageText = await averageResponse.text()
+                console.log(`Average rating response for item ${item.id}:`, averageText)
+
+                // The endpoint returns a plain number, not JSON
+                if (averageText && averageText.trim() !== "") {
+                  averageRating = Number.parseFloat(averageText)
+                  // Handle NaN case
+                  if (isNaN(averageRating)) {
+                    averageRating = 0
+                  }
                 }
+              } else {
+                console.log(`No average rating found for item ${item.id}`)
               }
-            } else {
-              console.log(`No average rating found for item ${item.id}`)
-            }
 
-            // Handle ratings count response
-            if (ratingsResponse.ok) {
-              const ratingsData = await ratingsResponse.json()
-              console.log(`Ratings data for item ${item.id}:`, ratingsData)
+              // Handle ratings count response
+              if (ratingsResponse.ok) {
+                const ratingsData = await ratingsResponse.json()
+                console.log(`Ratings data for item ${item.id}:`, ratingsData)
 
-              // Count the ratings array
-              if (Array.isArray(ratingsData)) {
-                totalRatings = ratingsData.length
+                // Count the ratings array
+                if (Array.isArray(ratingsData)) {
+                  totalRatings = ratingsData.length
+                }
+              } else {
+                console.log(`No ratings found for item ${item.id}`)
               }
-            } else {
-              console.log(`No ratings found for item ${item.id}`)
+            } catch (error) {
+              console.warn(`Rating service unavailable for item ${item.id}, using defaults:`, error)
+              // Use default values when rating service is unavailable
+              averageRating = 0
+              totalRatings = 0
             }
 
             console.log(`Item ${item.name}: Average=${averageRating}, Count=${totalRatings}`)

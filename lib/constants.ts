@@ -22,7 +22,9 @@ export const API_URLS = {
   COUPON_SERVICE_URL: process.env.NEXT_PUBLIC_COUPON_SERVICE_URL || "http://localhost:8083",
   COUPON_API_URL: "/coupon",
 
-  ORDER_SERVICE_URL: "/api/orders",
+  // Order Service 
+  ORDER_SERVICE_URL: process.env.NEXT_PUBLIC_ORDER_SERVICE_URL || "http://localhost:8082",
+  ORDER_API_URL: "/api/orders",
 }
 
 export const USER_ROLES = {
@@ -32,4 +34,10 @@ export const USER_ROLES = {
 export enum MenuType {
   FOOD = "FOOD",
   DRINK = "DRINK",
+}
+
+export enum OrderStatus {
+  NEW = "NEW",
+  PROCESSING = "PROCESSING", 
+  COMPLETED = "COMPLETED",
 }

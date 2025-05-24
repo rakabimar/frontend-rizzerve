@@ -8,14 +8,17 @@ import { ArrowLeft, Check } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Separator } from "@/components/ui/separator"
+import { useOrderService } from "@/hooks/use-order-service"
 
 export default function CheckoutPage() {
   const [cartItems, setCartItems] = useState<any[]>([])
   const [tableNumber, setTableNumber] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [orderPlaced, setOrderPlaced] = useState(false)
+  const [orderNumber, setOrderNumber] = useState<string>("")
   const router = useRouter()
   const { toast } = useToast()
+  const orderService = useOrderService()
 
   useEffect(() => {
     // Check if table number is selected
@@ -47,23 +50,39 @@ export default function CheckoutPage() {
   const handlePlaceOrder = async () => {
     setLoading(true)
     try {
-      // In a real app, this would submit the order to your API
-      // Simulating API call
-      await new Promise((resolve) => setTimeout(resolve, 1500))
+      if (!tableNumber) {
+        throw new Error("Table number is required")
+      }
 
-      // Clear cart
+      // Create order in backend
+      const order = await orderService.createOrder(tableNumber)
+      if (!order) {
+        throw new Error("Failed to create order")
+      }
+
+      // Add each cart item to the order
+      for (const cartItem of cartItems) {
+        await orderService.addItemToOrder(
+          order.id,
+          cartItem.id,
+          cartItem.quantity
+        )
+      }
+
+      // Clear cart and set order placed
       localStorage.removeItem("cart")
+      setOrderNumber(order.id.substring(0, 8).toUpperCase()) // Use first 8 chars of order ID
       setOrderPlaced(true)
 
       toast({
         title: "Order placed successfully",
-        description: "Your order has been sent to the kitchen",
+        description: "Your order has been sent to the kitchen and table reserved",
       })
     } catch (error) {
       console.error("Error placing order:", error)
       toast({
         title: "Error",
-        description: "Could not place your order. Please try again.",
+        description: error instanceof Error ? error.message : "Could not place your order. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -89,7 +108,7 @@ export default function CheckoutPage() {
           <CardContent className="space-y-4">
             <div className="text-center">
               <p className="font-medium">Order Number</p>
-              <p className="text-2xl font-bold">{Math.floor(Math.random() * 10000)}</p>
+              <p className="text-2xl font-bold">{orderNumber}</p>
             </div>
             <div className="text-center">
               <p className="font-medium">Table Number</p>
