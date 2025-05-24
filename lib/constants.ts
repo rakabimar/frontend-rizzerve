@@ -10,6 +10,10 @@ export const API_URLS = {
   MENU_SERVICE_URL: process.env.NEXT_PUBLIC_MENU_SERVICE_URL || "http://localhost:8081",
   MENU_API_URL: "/menu",
 
+  // Rating Service
+  RATING_SERVICE_URL: process.env.NEXT_PUBLIC_RATING_SERVICE_URL || "http://localhost:8084",
+  RATING_API_URL: "/api/ratings",
+
   // Other service paths
   TABLE_SERVICE_URL: "/api/tables",
   ORDER_SERVICE_URL: "/api/orders",
