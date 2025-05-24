@@ -18,6 +18,10 @@ export const API_URLS = {
   TABLE_SERVICE_URL: process.env.NEXT_PUBLIC_TABLE_SERVICE_URL || "http://localhost:8085",
   TABLE_API_URL: "/api/table",
 
+  // Coupon Service
+  COUPON_SERVICE_URL: process.env.NEXT_PUBLIC_COUPON_SERVICE_URL || "http://localhost:8083",
+  COUPON_API_URL: "/coupon",
+
   ORDER_SERVICE_URL: "/api/orders",
 }
 

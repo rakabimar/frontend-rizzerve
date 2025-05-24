@@ -1,8 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useState, useRef } from "react"
 
+import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/context/auth-context"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,16 +11,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Clock, DollarSign, Edit, Eye, LogOut, Plus, ShoppingBag, Trash2, Users } from "lucide-react"
+import { Clock, DollarSign, Edit, LogOut, Plus, ShoppingBag, Trash2, Users } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { API_URLS } from "@/lib/constants"
 import type { MenuItem } from "@/types/menu"
 import MenuItemDialog from "@/components/menu/menu-item-dialog"
 import DeleteMenuItemDialog from "@/components/menu/delete-menu-item-dialog"
-import type { Table as RzTable, TableListResponse } from "@/types/table"
-import TableDialog from "@/components/table/table-dialog"
-import DeleteTableDialog from "@/components/table/delete-table-dialog"
-import TableOrderDialog from "@/components/table/table-order-dialog"
+import type { Coupon } from "@/types/coupon"
+import CouponDialog from "@/components/coupon/coupon-dialog"
+import DeleteCouponDialog from "@/components/coupon/delete-coupon-dialog"
 
 export default function AdminDashboardPage() {
   const { user, logout } = useAuth()
@@ -28,31 +27,6 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true)
   const { toast } = useToast()
 
-  // Add state for refreshing menu items
-  const [menuRefreshTrigger, setMenuRefreshTrigger] = useState(0)
-
-  // Function to trigger menu refresh
-  const refreshMenuItems = () => {
-    setMenuRefreshTrigger((prev) => prev + 1)
-  }
-
-  const [tableStats, setTableStats] = useState<{ active: number; total: number }>({ active: 0, total: 0 })
-
-  const refreshTableStats = async () => {
-    try {
-      const response = await fetch(`${API_URLS.TABLE_SERVICE_URL}${API_URLS.TABLE_API_URL}`, {
-        headers: { Authorization: `Bearer ${user?.token ?? ""}` },
-      })
-      if (!response.ok) return
-      const data: TableListResponse = await response.json()
-      const totalTables = data.data.length
-      const activeTables = data.data.filter((t) => t.status === "TERPAKAI").length
-      setTableStats({ active: activeTables, total: totalTables })
-    } catch (_) {
-      setTableStats({ active: 0, total: 0 })
-    }
-  }
-  
   useEffect(() => {
     if (!user) {
       router.push("/auth/login")
@@ -92,17 +66,9 @@ export default function AdminDashboardPage() {
     fetchAdminProfile()
   }, [user, router, logout, toast])
 
-  useEffect(() => {
-    if (user) {
-      refreshTableStats()
-    }
-  }, [user])
-
   if (loading) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
-
-  const occupancy = tableStats.total ? Math.round((tableStats.active / tableStats.total) * 100) : 0
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -129,42 +95,12 @@ export default function AdminDashboardPage() {
           <p className="text-gray-600">Manage your restaurant operations</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <DashboardCard
-            title="Total Orders"
-            value="156"
-            trend="+12% from last week"
-            icon={<ShoppingBag className="h-5 w-5" />}
-            color="bg-blue-100 text-blue-700"
-          />
-          <DashboardCard
-            title="Total Revenue"
-            value="$4,385.90"
-            trend="+8% from last week"
-            icon={<DollarSign className="h-5 w-5" />}
-            color="bg-green-100 text-green-700"
-          />
-          <DashboardCard
-            title="Active Tables"
-            value={`${tableStats.active}/${tableStats.total}`}
-            trend={`${occupancy}% occupancy`}
-            icon={<Users className="h-5 w-5" />}
-            color="bg-purple-100 text-purple-700"
-          />
-          <DashboardCard
-            title="Avg. Preparation Time"
-            value="18 min"
-            trend="-2 min from last week"
-            icon={<Clock className="h-5 w-5" />}
-            color="bg-orange-100 text-orange-700"
-          />
-        </div>
-
         <Tabs defaultValue="orders" className="space-y-4">
           <TabsList>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="menu">Menu Management</TabsTrigger>
             <TabsTrigger value="tables">Table Management</TabsTrigger>
+            <TabsTrigger value="coupons">Coupon Management</TabsTrigger>
           </TabsList>
 
           <TabsContent value="orders" className="space-y-4">
@@ -186,10 +122,10 @@ export default function AdminDashboardPage() {
                   <CardTitle>Menu Items</CardTitle>
                   <CardDescription>Add, edit, or remove menu items</CardDescription>
                 </div>
-                <MenuItemsActions onSuccess={refreshMenuItems} />
+                <MenuItemsActions />
               </CardHeader>
               <CardContent>
-                <MenuItemsTable refreshTrigger={menuRefreshTrigger} />
+                <MenuItemsTable />
               </CardContent>
             </Card>
           </TabsContent>
@@ -201,12 +137,32 @@ export default function AdminDashboardPage() {
                   <CardTitle>Tables</CardTitle>
                   <CardDescription>Manage restaurant tables</CardDescription>
                 </div>
-                <Button className="bg-rose-600 hover:bg-rose-700" onClick={() => window.dispatchEvent(new Event("open-add-table-dialog"))}>
+                <Button className="bg-rose-600 hover:bg-rose-700">
                   <Plus className="mr-2 h-4 w-4" /> Add Table
                 </Button>
               </CardHeader>
               <CardContent>
-                <TablesTable onTableChange={refreshTableStats} />
+                <TablesTable />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="coupons" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Coupons</CardTitle>
+                  <CardDescription>Manage discount coupons and promotions</CardDescription>
+                </div>
+                <Button
+                  className="bg-rose-600 hover:bg-rose-700"
+                  onClick={() => window.dispatchEvent(new Event("open-add-coupon-dialog"))}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Add Coupon
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <CouponsTable />
               </CardContent>
             </Card>
           </TabsContent>
@@ -245,7 +201,7 @@ function DashboardCard({
   )
 }
 
-function MenuItemsActions({ onSuccess }: { onSuccess: () => void }) {
+function MenuItemsActions() {
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
@@ -257,15 +213,15 @@ function MenuItemsActions({ onSuccess }: { onSuccess: () => void }) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={() => {
-          onSuccess() // Call the refresh function
-          setDialogOpen(false)
+          // This will be called after successful form submission
+          // We'll handle refreshing the menu items list here
         }}
       />
     </>
   )
 }
 
-function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
+function MenuItemsTable() {
   const { toast } = useToast()
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -274,16 +230,12 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | undefined>(undefined)
 
-  // Use a ref to avoid double fetching on initial mount
-  const initialFetchCompleted = useRef(false)
-
-  // Define fetchMenuItems outside of useEffect
   const fetchMenuItems = async () => {
     setLoading(true)
     try {
       console.log("Fetching menu items from:", `${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}`)
       const response = await fetch(`${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}`)
-        
+
       if (!response.ok) {
         const errorText = await response.text()
         console.error("Error response:", errorText)
@@ -305,21 +257,9 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
     }
   }
 
-  // Initial fetch on mount
   useEffect(() => {
-    // Skip the initial mount since we already fetched above
-    if (!initialFetchCompleted.current) {
-      fetchMenuItems()
-      initialFetchCompleted.current = true
-    }
+    fetchMenuItems()
   }, [])
-
-  // Fetch when refresh trigger changes
-  useEffect(() => {
-    if (initialFetchCompleted.current && refreshTrigger > 0) {
-      fetchMenuItems()
-    }
-  }, [refreshTrigger])
 
   const handleEdit = (menuItem: MenuItem) => {
     setSelectedMenuItem(menuItem)
@@ -336,32 +276,6 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.description.toLowerCase().includes(searchTerm.toLowerCase()),
   )
-  
-  // Helper function to determine menu item type
-  const getMenuItemType = (item: MenuItem): string => {
-    if ('isSpicy' in item) return "FOOD";
-    if ('isCold' in item) return "DRINK";
-    return "UNKNOWN";
-  }
-
-  // Helper function to get appropriate badge for the menu type
-  const getMenuTypeBadge = (item: MenuItem) => {
-    const type = getMenuItemType(item);
-
-    return (
-      <Badge
-        variant="outline"
-        className={type === "FOOD"
-          ? "bg-amber-50 text-amber-700 border-amber-200"
-          : type === "DRINK"
-            ? "bg-blue-50 text-blue-700 border-blue-200"
-            : "bg-gray-50 text-gray-700 border-gray-200"
-        }
-      >
-        {type}
-      </Badge>
-    );
-  };
 
   return (
     <div>
@@ -402,7 +316,7 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
               <TableRow key={item.id}>
                 <TableCell className="font-medium">{item.name}</TableCell>
                 <TableCell>
-                  {getMenuTypeBadge(item)}
+                  <Badge variant="outline">{item.type}</Badge>
                 </TableCell>
                 <TableCell className="max-w-xs truncate">{item.description}</TableCell>
                 <TableCell>${item.price.toFixed(2)}</TableCell>
@@ -414,8 +328,8 @@ function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
                   )}
                 </TableCell>
                 <TableCell>
-                  {'isSpicy' in item && item.isSpicy && <Badge className="bg-red-100 text-red-800">Spicy</Badge>}
-                  {'isCold' in item && item.isCold && <Badge className="bg-blue-100 text-blue-800">Cold</Badge>}
+                  {item.type === "FOOD" && item.isSpicy && <Badge className="bg-red-100 text-red-800">Spicy</Badge>}
+                  {item.type === "DRINK" && item.isCold && <Badge className="bg-blue-100 text-blue-800">Cold</Badge>}
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">
@@ -557,30 +471,102 @@ function OrdersTable() {
   )
 }
 
-function TablesTable({ onTableChange }: { onTableChange?: () => void }) {
+function TablesTable() {
+  const tables = [
+    { id: "1", number: "1", status: "occupied", orders: 1 },
+    { id: "2", number: "2", status: "available", orders: 0 },
+    { id: "3", number: "3", status: "occupied", orders: 1 },
+    { id: "4", number: "4", status: "available", orders: 0 },
+    { id: "5", number: "5", status: "occupied", orders: 2 },
+    { id: "6", number: "6", status: "available", orders: 0 },
+    { id: "7", number: "7", status: "occupied", orders: 1 },
+    { id: "8", number: "8", status: "available", orders: 0 },
+  ]
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <Input placeholder="Search tables..." className="max-w-xs" />
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>ID</TableHead>
+            <TableHead>Table Number</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Active Orders</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {tables.map((table) => (
+            <TableRow key={table.id}>
+              <TableCell className="font-medium">{table.id}</TableCell>
+              <TableCell>{table.number}</TableCell>
+              <TableCell>
+                {table.status === "occupied" ? (
+                  <Badge className="bg-red-100 text-red-800">Occupied</Badge>
+                ) : (
+                  <Badge className="bg-green-100 text-green-800">Available</Badge>
+                )}
+              </TableCell>
+              <TableCell>{table.orders}</TableCell>
+              <TableCell>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="icon">
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon">
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+function CouponsTable() {
   const { toast } = useToast()
   const { user } = useAuth()
-  const [tables, setTables] = useState<RzTable[]>([])
+  const [coupons, setCoupons] = useState<Coupon[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
-  const [editOpen, setEditOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [orderOpen, setOrderOpen] = useState(false)
-  const [selectedTable, setSelectedTable] = useState<RzTable | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [selectedCoupon, setSelectedCoupon] = useState<Coupon | undefined>(undefined)
   const initialFetchCompleted = useRef(false)
 
-  const fetchTables = async () => {
+  const fetchCoupons = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`${API_URLS.TABLE_SERVICE_URL}${API_URLS.TABLE_API_URL}`, {
-        headers: { Authorization: `Bearer ${user?.token ?? ""}` },
+      console.log("Fetching coupons from:", `${API_URLS.COUPON_SERVICE_URL}${API_URLS.COUPON_API_URL}`)
+      const response = await fetch(`${API_URLS.COUPON_SERVICE_URL}${API_URLS.COUPON_API_URL}`, {
+        headers: {
+          Authorization: `Bearer ${user?.token ?? ""}`,
+        },
       })
-      if (!response.ok) throw new Error(await response.text())
-      const data: TableListResponse = await response.json()
-      setTables(data.data)
-      if (onTableChange) onTableChange()
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("Error response:", errorText)
+        throw new Error(errorText || "Failed to fetch coupons")
+      }
+
+      const data = await response.json()
+      console.log("Coupons fetched successfully:", data)
+      setCoupons(data)
     } catch (error) {
-      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to load tables", variant: "destructive" })
+      console.error("Error fetching coupons:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to load coupons",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }
@@ -588,33 +574,59 @@ function TablesTable({ onTableChange }: { onTableChange?: () => void }) {
 
   useEffect(() => {
     if (!initialFetchCompleted.current) {
-      fetchTables()
+      fetchCoupons()
       initialFetchCompleted.current = true
     }
   }, [])
 
   useEffect(() => {
     const openAdd = () => {
-      setSelectedTable(null)
-      setEditOpen(true)
+      setSelectedCoupon(undefined)
+      setEditDialogOpen(true)
     }
-    window.addEventListener("open-add-table-dialog", openAdd)
-    return () => window.removeEventListener("open-add-table-dialog", openAdd)
+    window.addEventListener("open-add-coupon-dialog", openAdd)
+    return () => window.removeEventListener("open-add-coupon-dialog", openAdd)
   }, [])
 
-  const filteredTables = tables
-    .filter(
-      (table) =>
-        table.nomorMeja.toString().includes(searchTerm) ||
-        table.status.toLowerCase().includes(searchTerm.toLowerCase()),
-    )
-    .sort((a, b) => a.nomorMeja - b.nomorMeja)
+  const handleEdit = (coupon: Coupon) => {
+    setSelectedCoupon(coupon)
+    setEditDialogOpen(true)
+  }
+
+  const handleDelete = (coupon: Coupon) => {
+    setSelectedCoupon(coupon)
+    setDeleteDialogOpen(true)
+  }
+
+  const filteredCoupons = coupons.filter(
+    (coupon) =>
+      coupon.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      coupon.type.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString()
+  }
+
+  const isExpired = (dateString: string) => {
+    return new Date(dateString) < new Date()
+  }
+
+  const getStatusBadge = (coupon: Coupon) => {
+    if (isExpired(coupon.expiredAt)) {
+      return <Badge className="bg-red-100 text-red-800">Expired</Badge>
+    }
+    if (coupon.usedCount >= coupon.quota) {
+      return <Badge className="bg-orange-100 text-orange-800">Quota Reached</Badge>
+    }
+    return <Badge className="bg-green-100 text-green-800">Active</Badge>
+  }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <Input
-          placeholder="Search tables..."
+          placeholder="Search coupons..."
           className="max-w-xs"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -622,46 +634,56 @@ function TablesTable({ onTableChange }: { onTableChange?: () => void }) {
       </div>
 
       {loading ? (
-        <div className="text-center py-8">Loading tables...</div>
-      ) : tables.length === 0 ? (
+        <div className="text-center py-8">Loading coupons...</div>
+      ) : coupons.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-gray-500">No tables found. Add your first table to get started.</p>
+          <p className="text-gray-500">No coupons found. Create your first coupon to get started.</p>
         </div>
-      ) : filteredTables.length === 0 ? (
+      ) : filteredCoupons.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-gray-500">No tables match your search.</p>
+          <p className="text-gray-500">No coupons match your search.</p>
         </div>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Table Number</TableHead>
+              <TableHead>Code</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Value</TableHead>
+              <TableHead>Min. Purchase</TableHead>
+              <TableHead>Usage</TableHead>
+              <TableHead>Expires</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredTables.map((table) => (
-              <TableRow key={table.id}>
-                <TableCell className="font-medium">{table.id}</TableCell>
-                <TableCell>{table.nomorMeja}</TableCell>
+            {filteredCoupons.map((coupon) => (
+              <TableRow key={coupon.code}>
+                <TableCell className="font-medium">{coupon.code}</TableCell>
                 <TableCell>
-                  {table.status === "TERPAKAI" ? (
-                    <Badge className="bg-red-100 text-red-800">Occupied</Badge>
-                  ) : (
-                    <Badge className="bg-green-100 text-green-800">Available</Badge>
-                  )}
+                  <Badge
+                    variant="outline"
+                    className={coupon.type === "PERCENTAGE" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}
+                  >
+                    {coupon.type}
+                  </Badge>
                 </TableCell>
                 <TableCell>
+                  {coupon.type === "PERCENTAGE" ? `${coupon.value}%` : `$${coupon.value.toFixed(2)}`}
+                </TableCell>
+                <TableCell>${coupon.minimumPurchase.toFixed(2)}</TableCell>
+                <TableCell>
+                  {coupon.usedCount}/{coupon.quota}
+                </TableCell>
+                <TableCell>{formatDate(coupon.expiredAt)}</TableCell>
+                <TableCell>{getStatusBadge(coupon)}</TableCell>
+                <TableCell>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setOrderOpen(true) }}>
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setEditOpen(true) }}>
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(coupon)}>
                       <Edit className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setDeleteOpen(true) }}>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(coupon)}>
                       <Trash2 className="h-4 w-4 text-red-500" />
                     </Button>
                   </div>
@@ -672,27 +694,22 @@ function TablesTable({ onTableChange }: { onTableChange?: () => void }) {
         </Table>
       )}
 
-      <TableDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        table={selectedTable ?? undefined}
-        onSuccess={fetchTables}
+      {/* Edit/Add Dialog */}
+      <CouponDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        coupon={selectedCoupon}
+        onSuccess={fetchCoupons}
       />
 
-      {selectedTable && (
-        <>
-          <DeleteTableDialog
-            open={deleteOpen}
-            onOpenChange={setDeleteOpen}
-            table={selectedTable}
-            onSuccess={fetchTables}
-          />
-          <TableOrderDialog
-            open={orderOpen}
-            onOpenChange={setOrderOpen}
-            tableId={selectedTable.id}
-          />
-        </>
+      {/* Delete Dialog */}
+      {selectedCoupon && (
+        <DeleteCouponDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          coupon={selectedCoupon}
+          onSuccess={fetchCoupons}
+        />
       )}
     </div>
   )
