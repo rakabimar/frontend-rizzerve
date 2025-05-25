@@ -15,6 +15,7 @@ import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { API_URLS } from "@/lib/constants"
+import { useOrderService } from "@/hooks/use-order-service"
 
 interface MejaCustomer {
   nomorMeja: number
@@ -30,8 +31,10 @@ export default function TableSelectPage() {
   const [tables, setTables] = useState<MejaCustomer[]>([])
   const [selectedTable, setSelectedTable] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  const [reserving, setReserving] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
+  const orderService = useOrderService()
 
   useEffect(() => {
     const fetchTables = async () => {
@@ -61,10 +64,39 @@ export default function TableSelectPage() {
 
   const handleTableSelect = (no: number) => setSelectedTable(no)
 
-  const handleContinue = () => {
-    if (selectedTable) {
+  const handleContinue = async () => {
+    if (!selectedTable) return
+    
+    setReserving(true)
+    try {
+      // Create order which will automatically reserve the table
+      const order = await orderService.createOrder(String(selectedTable))
+      
+      if (!order) {
+        throw new Error("Failed to create order and reserve table")
+      }
+
+      // Store table number and order ID for dashboard use
       localStorage.setItem("tableNumber", String(selectedTable))
+      localStorage.setItem("currentOrderId", order.id)
+      
+      toast({
+        title: "Table Reserved",
+        description: `Table ${selectedTable} reserved successfully! Order ${order.id.substring(0, 8).toUpperCase()} created.`,
+      })
+      
+      // Navigate to dashboard
       router.push("/customer/dashboard")
+      
+    } catch (error) {
+      console.error("Error reserving table:", error)
+      toast({
+        title: "Reservation Failed",
+        description: error instanceof Error ? error.message : "Could not reserve table. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setReserving(false)
     }
   }
 
@@ -140,10 +172,10 @@ export default function TableSelectPage() {
           <CardFooter className="flex justify-end">
             <Button
               className="bg-rose-600 hover:bg-rose-700"
-              disabled={!selectedTable}
+              disabled={!selectedTable || reserving}
               onClick={handleContinue}
             >
-              Continue to Menu
+              {reserving ? "Reserving Table..." : "Continue to Menu"}
             </Button>
           </CardFooter>
         </Card>

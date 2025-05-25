@@ -22,6 +22,7 @@ export function useOrderService() {
       })
 
       if (!response.ok) {
+        const errorText = await response.text()
         throw new Error(`Failed to create order: ${response.statusText}`)
       }
 
@@ -217,6 +218,40 @@ export function useOrderService() {
     }
   }
 
+  // Cancel order by removing all items (since there's no delete order endpoint)
+  const cancelOrder = async (orderId: string): Promise<boolean> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // First get the order to see its items
+      const order = await getOrder(orderId)
+      if (!order) {
+        return true // Order doesn't exist, consider it cancelled
+      }
+
+      // Remove all items from the order to effectively cancel it
+      for (const item of order.items) {
+        try {
+          await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${orderId}/items/${item.id}`, {
+            method: 'DELETE',
+          })
+        } catch (error) {
+          console.warn(`Failed to remove item ${item.id} from order ${orderId}:`, error)
+          // Continue with other items even if one fails
+        }
+      }
+
+      setCurrentOrder(null)
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return {
     currentOrder,
     isLoading,
@@ -226,6 +261,7 @@ export function useOrderService() {
     getOrder,
     updateItemQuantity,
     removeItemFromOrder,
+    cancelOrder,
     setCurrentOrder,
   }
 } 

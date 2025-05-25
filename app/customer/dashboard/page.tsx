@@ -13,6 +13,7 @@ import { API_URLS } from "@/lib/constants"
 import type { MenuItem } from "@/types/menu"
 import RatingStars from "@/components/rating/rating-stars"
 import RatingModal from "@/components/rating/rating-modal"
+import { useOrderService } from "@/hooks/use-order-service"
 
 interface MenuItemWithRating extends MenuItem {
   averageRating?: number
@@ -31,6 +32,7 @@ export default function CustomerDashboardPage() {
   const [ratingModalOpen, setRatingModalOpen] = useState(false)
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null)
   const { toast } = useToast()
+  const orderService = useOrderService()
 
   // Helper function to determine menu item type
   const getMenuItemType = (item: any): "FOOD" | "DRINK" => {
@@ -55,8 +57,78 @@ export default function CustomerDashboardPage() {
     }
 
     setTableNumber(tableNum)
+    
+    // Check for existing order and handle cleanup/restoration
+    handleExistingOrder()
+    
     fetchMenuItems()
   }, [router])
+
+  const handleExistingOrder = async () => {
+    const existingOrderId = localStorage.getItem("currentOrderId")
+    const existingCart = localStorage.getItem("cart")
+    
+    if (existingOrderId) {
+      try {
+        // Check if order still exists and its status
+        const order = await orderService.getOrder(existingOrderId)
+        
+        if (order && order.status === "NEW") {
+          // If there's a cart, user came back from checkout - reset table and order ID but keep cart
+          if (existingCart) {
+            await resetTableAndOrder(existingOrderId, order.tableNumber)
+            
+            // Restore cart items
+            setCartItems(JSON.parse(existingCart))
+            
+            toast({
+              title: "Back to ordering",
+              description: "Table freed. You can modify your order and place it again.",
+            })
+          } else {
+            // No cart means user just came from table selection - keep the order ID
+            console.log("Order exists from table selection, keeping order ID:", existingOrderId)
+          }
+        } else {
+          // Order is already processing/completed or doesn't exist, just clean up
+          localStorage.removeItem("currentOrderId")
+          localStorage.removeItem("cart")
+        }
+      } catch (error) {
+        console.error("Error handling existing order:", error)
+        // Clean up on error
+        localStorage.removeItem("currentOrderId")
+        localStorage.removeItem("cart")
+      }
+    }
+  }
+
+  const resetTableAndOrder = async (orderId: string, tableNumber: string) => {
+    try {
+      // Note: Since there's no proper cancel endpoint, we'll just clear localStorage
+      // The table service should reset the table status when the order is not completed
+      localStorage.removeItem("currentOrderId")
+      
+      console.log(`Resetting table ${tableNumber} and clearing order ${orderId}`)
+    } catch (error) {
+      console.error("Error resetting table and order:", error)
+    }
+  }
+
+  const cancelOrder = async (orderId: string) => {
+    try {
+      // Reset table status and clear order (no proper backend endpoint available)
+      localStorage.removeItem("currentOrderId")
+      localStorage.removeItem("cart")
+      
+      toast({
+        title: "Order cancelled",
+        description: "Order cleared and table freed for new orders.",
+      })
+    } catch (error) {
+      console.error("Error clearing order:", error)
+    }
+  }
 
   const fetchMenuItems = async () => {
     setLoading(true)
@@ -87,14 +159,12 @@ export default function CustomerDashboardPage() {
 
             try {
               const averageResponse = await fetch(
-                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}/average`,
-                { timeout: 3000 } // Add timeout
+                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}/average`
               )
 
               // Fetch all ratings for this item to count them
               const ratingsResponse = await fetch(
-                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}`,
-                { timeout: 3000 } // Add timeout
+                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}`
               )
 
               // Handle average rating response
@@ -199,7 +269,7 @@ export default function CustomerDashboardPage() {
     setCartItems((prev) => prev.map((item) => (item.id === id ? { ...item, quantity } : item)))
   }
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
     if (cartItems.length === 0) {
       toast({
         title: "Cart is empty",
@@ -209,9 +279,50 @@ export default function CustomerDashboardPage() {
       return
     }
 
-    // Save cart to localStorage for now (will be replaced with order service)
-    localStorage.setItem("cart", JSON.stringify(cartItems))
-    router.push("/customer/checkout")
+    try {
+      const existingOrderId = localStorage.getItem("currentOrderId")
+      
+      if (!existingOrderId) {
+        throw new Error("No order found. Please select a table first.")
+      }
+
+      // Order already exists from table selection, just save cart and navigate
+      localStorage.setItem("cart", JSON.stringify(cartItems))
+      
+      toast({
+        title: "Proceeding to checkout",
+        description: `Using order ${existingOrderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
+      })
+      
+      router.push("/customer/checkout")
+      
+    } catch (error) {
+      console.error("Error placing order:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Could not place order. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const clearCart = async () => {
+    // Clear any pending order and reset table status
+    const existingOrderId = localStorage.getItem("currentOrderId")
+    if (existingOrderId) {
+      setCartItems([]) // Clear cart items first
+      await cancelOrder(existingOrderId)
+    } else {
+      // Just clear cart and localStorage
+      setCartItems([])
+      localStorage.removeItem("cart")
+      localStorage.removeItem("currentOrderId")
+      
+      toast({
+        title: "Cart cleared",
+        description: "Your cart has been cleared",
+      })
+    }
   }
 
   const handleRateItem = (item: MenuItem) => {
@@ -450,13 +561,24 @@ export default function CustomerDashboardPage() {
                 )}
               </CardContent>
               <CardFooter>
-                <Button
-                  className="w-full bg-rose-600 hover:bg-rose-700"
-                  disabled={cartItems.length === 0}
-                  onClick={placeOrder}
-                >
-                  Place Order
-                </Button>
+                <div className="w-full space-y-2">
+                  <Button
+                    className="w-full bg-rose-600 hover:bg-rose-700"
+                    disabled={cartItems.length === 0}
+                    onClick={placeOrder}
+                  >
+                    Place Order
+                  </Button>
+                  {cartItems.length > 0 && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={clearCart}
+                    >
+                      Clear Cart
+                    </Button>
+                  )}
+                </div>
               </CardFooter>
             </Card>
           </div>

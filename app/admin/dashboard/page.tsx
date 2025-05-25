@@ -371,68 +371,117 @@ function MenuItemsTable() {
 }
 
 function OrdersTable() {
-  const orders = [
-    {
-      id: "ORD-1005",
-      table: "8",
-      items: 4,
-      total: 56.97,
-      status: "pending",
-      time: "5 min ago",
-    },
-    {
-      id: "ORD-1004",
-      table: "12",
-      items: 2,
-      total: 28.5,
-      status: "preparing",
-      time: "15 min ago",
-    },
-    {
-      id: "ORD-1003",
-      table: "5",
-      items: 3,
-      total: 42.75,
-      status: "ready",
-      time: "25 min ago",
-    },
-    {
-      id: "ORD-1002",
-      table: "10",
-      items: 5,
-      total: 78.25,
-      status: "delivered",
-      time: "45 min ago",
-    },
-    {
-      id: "ORD-1001",
-      table: "3",
-      items: 2,
-      total: 32.99,
-      status: "delivered",
-      time: "1 hour ago",
-    },
-  ]
+  const { toast } = useToast()
+  const { user } = useAuth()
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+
+  const fetchOrders = async () => {
+    setLoading(true)
+    try {
+      console.log("Fetching orders from:", `${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}`)
+      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}`, {
+        headers: {
+          Authorization: `Bearer ${user?.token ?? ""}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch orders")
+      }
+
+      const data = await response.json()
+      console.log("Orders fetched successfully:", data)
+      setOrders(data)
+    } catch (error) {
+      console.error("Error fetching orders:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load orders",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchOrders()
+  }, [])
+
+  const handleCompleteOrder = async (orderId: string) => {
+    try {
+      console.log("Completing order:", orderId)
+      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/async/${orderId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${user?.token ?? ""}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to complete order")
+      }
+
+      toast({
+        title: "Order completed",
+        description: `Order ${orderId.substring(0, 8).toUpperCase()} has been marked as completed`,
+      })
+
+      // Refresh orders list
+      fetchOrders()
+    } catch (error) {
+      console.error("Error completing order:", error)
+      toast({
+        title: "Error",
+        description: "Failed to complete order",
+        variant: "destructive",
+      })
+    }
+  }
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
-      case "preparing":
-        return <Badge className="bg-blue-100 text-blue-800">Preparing</Badge>
-      case "ready":
-        return <Badge className="bg-green-100 text-green-800">Ready</Badge>
-      case "delivered":
-        return <Badge className="bg-gray-100 text-gray-800">Delivered</Badge>
+    switch (status?.toUpperCase()) {
+      case "NEW":
+        return <Badge className="bg-blue-100 text-blue-800">New</Badge>
+      case "PROCESSING":
+        return <Badge className="bg-yellow-100 text-yellow-800">Processing</Badge>
+      case "COMPLETED":
+        return <Badge className="bg-green-100 text-green-800">Completed</Badge>
+      case "CANCELLED":
+        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>
       default:
         return <Badge>{status}</Badge>
     }
   }
 
+  const formatDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleString()
+  }
+
+  const filteredOrders = orders.filter(order => 
+    order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.tableNumber.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  if (loading) {
+    return <div className="text-center py-4">Loading orders...</div>
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <Input placeholder="Search orders..." className="max-w-xs" />
+        <Input 
+          placeholder="Search orders..." 
+          className="max-w-xs" 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <Button onClick={fetchOrders} variant="outline" size="sm">
+          Refresh
+        </Button>
       </div>
 
       <Table>
@@ -443,21 +492,31 @@ function OrdersTable() {
             <TableHead>Items</TableHead>
             <TableHead>Total</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Time</TableHead>
+            <TableHead>Created</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {orders.map((order) => (
+          {filteredOrders.map((order) => (
             <TableRow key={order.id}>
-              <TableCell className="font-medium">{order.id}</TableCell>
-              <TableCell>{order.table}</TableCell>
-              <TableCell>{order.items}</TableCell>
-              <TableCell>${order.total.toFixed(2)}</TableCell>
+              <TableCell className="font-medium">{order.id.substring(0, 8).toUpperCase()}</TableCell>
+              <TableCell>{order.tableNumber}</TableCell>
+              <TableCell>{order.items?.length || 0}</TableCell>
+              <TableCell>${order.totalPrice?.toFixed(2) || '0.00'}</TableCell>
               <TableCell>{getStatusBadge(order.status)}</TableCell>
-              <TableCell>{order.time}</TableCell>
+              <TableCell>{order.createdAt ? formatDateTime(order.createdAt) : 'N/A'}</TableCell>
               <TableCell>
                 <div className="flex gap-2">
+                  {order.status?.toUpperCase() === "PROCESSING" && (
+                    <Button 
+                      variant="default" 
+                      size="sm" 
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => handleCompleteOrder(order.id)}
+                    >
+                      Complete
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon">
                     <Edit className="h-4 w-4" />
                   </Button>
@@ -467,6 +526,12 @@ function OrdersTable() {
           ))}
         </TableBody>
       </Table>
+
+      {filteredOrders.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          No orders found
+        </div>
+      )}
     </div>
   )
 }

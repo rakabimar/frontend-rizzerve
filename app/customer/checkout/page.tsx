@@ -9,12 +9,14 @@ import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Separator } from "@/components/ui/separator"
 import { useOrderService } from "@/hooks/use-order-service"
+import { API_URLS } from "@/lib/constants"
 
 export default function CheckoutPage() {
   const [cartItems, setCartItems] = useState<any[]>([])
   const [tableNumber, setTableNumber] = useState<string | null>(null)
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [orderPlaced, setOrderPlaced] = useState(false)
+  const [orderCompleted, setOrderCompleted] = useState(false)
   const [orderNumber, setOrderNumber] = useState<string>("")
   const router = useRouter()
   const { toast } = useToast()
@@ -28,7 +30,16 @@ export default function CheckoutPage() {
       return
     }
 
+    // Check if order ID exists
+    const orderId = localStorage.getItem("currentOrderId")
+    if (!orderId) {
+      // No existing order, redirect back to dashboard
+      router.push("/customer/dashboard")
+      return
+    }
+
     setTableNumber(tableNum)
+    setCurrentOrderId(orderId)
 
     // Get cart items from localStorage
     const storedCart = localStorage.getItem("cart")
@@ -47,42 +58,55 @@ export default function CheckoutPage() {
   const tax = totalPrice * 0.1
   const finalTotal = totalPrice + tax
 
-  const handlePlaceOrder = async () => {
+  const handleCheckout = async () => {
+    if (!currentOrderId) {
+      toast({
+        title: "Error",
+        description: "No active order found. Please start over.",
+        variant: "destructive",
+      })
+      router.push("/customer/dashboard")
+      return
+    }
+
     setLoading(true)
     try {
-      if (!tableNumber) {
-        throw new Error("Table number is required")
-      }
-
-      // Create order in backend
-      const order = await orderService.createOrder(tableNumber)
-      if (!order) {
-        throw new Error("Failed to create order")
-      }
-
-      // Add each cart item to the order
+      // Step 2: Add each cart item to the existing order
       for (const cartItem of cartItems) {
         await orderService.addItemToOrder(
-          order.id,
+          currentOrderId,
           cartItem.id,
           cartItem.quantity
         )
       }
 
-      // Clear cart and set order placed
+      // Step 2: Confirm the order (changes status to PROCESSING)
+      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${currentOrderId}/confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to confirm order')
+      }
+
+      // Clear cart and order ID, set order completed
       localStorage.removeItem("cart")
-      setOrderNumber(order.id.substring(0, 8).toUpperCase()) // Use first 8 chars of order ID
-      setOrderPlaced(true)
+      localStorage.removeItem("currentOrderId")
+      setOrderNumber(currentOrderId.substring(0, 8).toUpperCase())
+      setOrderCompleted(true)
 
       toast({
-        title: "Order placed successfully",
-        description: "Your order has been sent to the kitchen and table reserved",
+        title: "Order confirmed successfully",
+        description: "Your order is being prepared in the kitchen",
       })
     } catch (error) {
-      console.error("Error placing order:", error)
+      console.error("Error confirming order:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Could not place your order. Please try again.",
+        description: error instanceof Error ? error.message : "Could not confirm your order. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -94,7 +118,7 @@ export default function CheckoutPage() {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
 
-  if (orderPlaced) {
+  if (orderCompleted) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Card className="max-w-md w-full">
@@ -103,7 +127,7 @@ export default function CheckoutPage() {
               <Check className="h-6 w-6 text-green-600" />
             </div>
             <CardTitle className="text-2xl">Order Confirmed!</CardTitle>
-            <CardDescription>Your order has been placed successfully</CardDescription>
+            <CardDescription>Your order is being prepared</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-center">
@@ -115,7 +139,7 @@ export default function CheckoutPage() {
               <p className="text-xl">{tableNumber}</p>
             </div>
             <p className="text-center text-gray-500">
-              Your order has been sent to the kitchen and will be served shortly.
+              Your order is being prepared in the kitchen and will be served shortly.
             </p>
           </CardContent>
           <CardFooter className="flex justify-center">
@@ -191,8 +215,8 @@ export default function CheckoutPage() {
             </div>
           </CardContent>
           <CardFooter className="flex justify-end">
-            <Button className="bg-rose-600 hover:bg-rose-700" onClick={handlePlaceOrder} disabled={loading}>
-              {loading ? "Processing..." : "Place Order"}
+            <Button className="bg-rose-600 hover:bg-rose-700" onClick={handleCheckout} disabled={loading}>
+              {loading ? "Processing..." : "Checkout"}
             </Button>
           </CardFooter>
         </Card>
