@@ -32,11 +32,15 @@ export default function TableSelectPage() {
   const [selectedTable, setSelectedTable] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [reserving, setReserving] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
   const orderService = useOrderService()
 
   useEffect(() => {
+    // Only clear cart on page load to ensure fresh start
+    localStorage.removeItem("cart")
+    
     const fetchTables = async () => {
       try {
         const res = await fetch(
@@ -65,37 +69,40 @@ export default function TableSelectPage() {
   const handleTableSelect = (no: number) => setSelectedTable(no)
 
   const handleContinue = async () => {
-    if (selectedTable && !creating) {
-      setCreating(true)
+    if (!selectedTable || reserving) return
+
+    setReserving(true)
+    
+    try {
+      // First create the order - this will automatically update table status
+      const order = await orderService.createOrder(String(selectedTable))
       
-      try {
-        // Create order in database first
-        const order = await orderService.createOrder(String(selectedTable))
-        
-        if (order) {
-          // Store both table number and order ID
-          localStorage.setItem("tableNumber", String(selectedTable))
-          localStorage.setItem("currentOrderId", order.id)
-          
-          toast({
-            title: "Order created",
-            description: `Order created for table ${selectedTable}. You can now browse the menu.`,
-          })
-          
-          router.push("/customer/dashboard")
-        } else {
-          throw new Error("Failed to create order")
-        }
-      } catch (error) {
-        console.error("Error creating order:", error)
-        toast({
-          title: "Error",
-          description: "Failed to create order. Please try again.",
-          variant: "destructive",
-        })
-      } finally {
-        setCreating(false)
+      if (!order || !order.id) {
+        throw new Error("Failed to create order")
       }
+      
+      // Set localStorage values after successful order creation
+      localStorage.setItem("tableNumber", String(selectedTable))
+      localStorage.setItem("currentOrderId", order.id)
+      localStorage.removeItem("cart") // Ensure fresh cart
+      
+      toast({
+        title: "Table Reserved",
+        description: `Table ${selectedTable} has been reserved and order created!`,
+      })
+      
+      // Navigate to dashboard
+      router.push("/customer/dashboard")
+      
+    } catch (error) {
+      console.error("Error creating order:", error)
+      toast({
+        title: "Error",
+        description: "Failed to reserve table. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setReserving(false)
     }
   }
 
@@ -171,10 +178,10 @@ export default function TableSelectPage() {
           <CardFooter className="flex justify-end">
             <Button
               className="bg-rose-600 hover:bg-rose-700"
-              disabled={!selectedTable || creating}
+              disabled={!selectedTable || reserving}
               onClick={handleContinue}
             >
-              {creating ? "Creating Order..." : "Continue to Menu"}
+              {reserving ? "Reserving Table..." : "Continue to Menu"}
             </Button>
           </CardFooter>
         </Card>

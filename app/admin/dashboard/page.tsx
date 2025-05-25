@@ -441,30 +441,57 @@ function OrdersTable() {
   const handleCompleteOrder = async (orderId: string) => {
     try {
       console.log("Completing order:", orderId)
-      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/async/${orderId}/complete`, {
-        method: 'POST',
+      
+      // First, get the order details to find the table number
+      const orderResponse = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${orderId}`, {
         headers: {
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${user?.token ?? ""}`,
         },
       })
-
-      if (!response.ok) {
-        throw new Error("Failed to complete order")
+      
+      if (!orderResponse.ok) {
+        throw new Error("Failed to get order details")
       }
+      
+      const order = await orderResponse.json()
+      
+      // Only allow completing orders that are in PROCESSING status
+      if (order.status === "PROCESSING") {
+        // Use the complete endpoint
+        const completeResponse = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${orderId}/complete`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${user?.token ?? ""}`,
+          },
+        })
 
-      toast({
-        title: "Order completed",
-        description: `Order ${orderId.substring(0, 8).toUpperCase()} has been marked as completed`,
-      })
+        if (!completeResponse.ok) {
+          const errorText = await completeResponse.text()
+          throw new Error(errorText || "Failed to complete order")
+        }
+        
+        // Table will be released automatically by the order service via RabbitMQ
 
-      // Refresh orders list
-      fetchOrders()
+        toast({
+          title: "Order completed",
+          description: `Order ${orderId.substring(0, 8).toUpperCase()} has been marked as completed`,
+        })
+
+        // Refresh orders list
+        fetchOrders()
+      } else {
+        toast({
+          title: "Cannot complete order",
+          description: `Order ${orderId.substring(0, 8).toUpperCase()} is in ${order.status} status. Only PROCESSING orders can be completed.`,
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       console.error("Error completing order:", error)
       toast({
         title: "Error",
-        description: "Failed to complete order",
+        description: error instanceof Error ? error.message : "Failed to complete order",
         variant: "destructive",
       })
     }
@@ -641,44 +668,44 @@ function TablesTable({ refreshTrigger, onTableChange }: { refreshTrigger: number
           <p className="text-gray-500">No tables match your search.</p>
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Table Number</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>ID</TableHead>
+            <TableHead>Table Number</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
             {filteredTables.map((table) => (
-              <TableRow key={table.id}>
-                <TableCell className="font-medium">{table.id}</TableCell>
+            <TableRow key={table.id}>
+              <TableCell className="font-medium">{table.id}</TableCell>
                 <TableCell>{table.nomorMeja}</TableCell>
-                <TableCell>
+              <TableCell>
                   {table.status === "TERPAKAI" ? (
-                    <Badge className="bg-red-100 text-red-800">Occupied</Badge>
-                  ) : (
-                    <Badge className="bg-green-100 text-green-800">Available</Badge>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2">
+                  <Badge className="bg-red-100 text-red-800">Occupied</Badge>
+                ) : (
+                  <Badge className="bg-green-100 text-green-800">Available</Badge>
+                )}
+              </TableCell>
+              <TableCell>
+                <div className="flex gap-2">
                     <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setOrderOpen(true) }}>
                       <Eye className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setEditOpen(true) }}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
+                    <Edit className="h-4 w-4" />
+                  </Button>
                     <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setDeleteOpen(true) }}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
       )}
 
       <TableDialog

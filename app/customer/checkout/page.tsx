@@ -59,7 +59,7 @@ export default function CheckoutPage() {
   const finalTotal = totalPrice + tax
 
   const handleCheckout = async () => {
-    if (!currentOrderId) {
+    if (!currentOrderId || !tableNumber) {
       toast({
         title: "Error",
         description: "No active order found. Please start over.",
@@ -71,42 +71,103 @@ export default function CheckoutPage() {
 
     setLoading(true)
     try {
-      // Step 2: Add each cart item to the existing order
-      for (const cartItem of cartItems) {
-        await orderService.addItemToOrder(
-          currentOrderId,
-          cartItem.id,
-          cartItem.quantity
-        )
+      let realOrderId = currentOrderId
+
+      // Remove duplicate order creation - order should already exist from table selection
+      // Just check if we have a valid order ID
+      if (currentOrderId.startsWith('temp-')) {
+        toast({
+          title: "Error",
+          description: "Invalid order. Please start over by selecting a table.",
+          variant: "destructive",
+        })
+        router.push("/customer/table-select")
+        return
       }
 
-      // Step 2: Confirm the order (changes status to PROCESSING)
-      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${currentOrderId}/confirm`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
+      // Add each cart item to the order
+      let addedItems = 0
+      for (const cartItem of cartItems) {
+        try {
+          console.log('Adding cart item to order:', {
+            orderId: realOrderId,
+            menuItemId: cartItem.id,
+            quantity: cartItem.quantity,
+            itemName: cartItem.name
+          })
+          
+          // Call the order service API directly with correct format
+          const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${realOrderId}/items`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              menuItemId: cartItem.id, // This should be the UUID from menu service
+              quantity: cartItem.quantity
+            }),
+          })
+          
+          if (!response.ok) {
+            const errorText = await response.text()
+            console.error('Failed to add item response:', errorText)
+            throw new Error(`Failed to add item: ${response.statusText} - ${errorText}`)
+          }
+          
+          const result = await response.json()
+          console.log('Successfully added item:', result)
+          addedItems++
+        } catch (error) {
+          console.error(`Failed to add item ${cartItem.name}:`, error)
+          // Continue with other items
+        }
+      }
+      
+      console.log(`Successfully added ${addedItems} out of ${cartItems.length} items`)
+      
+      if (addedItems === 0) {
+        throw new Error("Failed to add any items to the order")
+      }
 
-      if (!response.ok) {
-        throw new Error('Failed to confirm order')
+      // Automatically confirm the order to set status to PROCESSING
+      try {
+        const confirmResponse = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${realOrderId}/confirm`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+
+        if (!confirmResponse.ok) {
+          console.warn('Order confirmation failed, but continuing...')
+        } else {
+          console.log('Order automatically confirmed and set to PROCESSING')
+        }
+      } catch (error) {
+        console.warn('Order confirmation error:', error)
+        // Continue anyway
       }
 
       // Clear cart and order ID, set order completed
       localStorage.removeItem("cart")
       localStorage.removeItem("currentOrderId")
-      setOrderNumber(currentOrderId.substring(0, 8).toUpperCase())
+      setOrderNumber(realOrderId.startsWith('temp-') ? 
+        `T${Date.now().toString().slice(-6)}` : 
+        realOrderId.substring(0, 8).toUpperCase())
       setOrderCompleted(true)
 
+      // Table will be released automatically when admin completes the order
+      // No need to release table here as order is only confirmed, not completed
+
       toast({
-        title: "Order confirmed successfully",
-        description: "Your order is being prepared in the kitchen",
+        title: "Order placed successfully",
+        description: "Your order has been sent to the kitchen",
       })
     } catch (error) {
       console.error("Error confirming order:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Could not confirm your order. Please try again.",
+        description: "Could not confirm your order. Please try again.",
         variant: "destructive",
       })
     } finally {

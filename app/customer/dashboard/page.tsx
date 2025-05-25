@@ -58,6 +58,9 @@ export default function CustomerDashboardPage() {
 
     setTableNumber(tableNum)
     
+    // Clear any previous cart items for fresh start
+    setCartItems([])
+    
     // Check for existing order and handle cleanup/restoration
     handleExistingOrder()
     
@@ -105,19 +108,60 @@ export default function CustomerDashboardPage() {
 
   const resetTableAndOrder = async (orderId: string, tableNumber: string) => {
     try {
-      // Note: Since there's no proper cancel endpoint, we'll just clear localStorage
-      // The table service should reset the table status when the order is not completed
-      localStorage.removeItem("currentOrderId")
-      
-      console.log(`Resetting table ${tableNumber} and clearing order ${orderId}`)
+      // Reset table status back to TERSEDIA (available)
+      const response = await fetch(
+        `${API_URLS.TABLE_SERVICE_URL}${API_URLS.TABLE_API_URL}/update-status?tableNumber=${tableNumber}&status=TERSEDIA`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.warn("Failed to reset table status:", errorText)
+      } else {
+        console.log(`Table ${tableNumber} status reset to TERSEDIA`)
+      }
     } catch (error) {
-      console.error("Error resetting table and order:", error)
+      console.warn("Error resetting table status:", error)
     }
+
+    // Always clear localStorage regardless of API call success
+    localStorage.removeItem("currentOrderId")
+    console.log(`Cleared order ${orderId} for table ${tableNumber}`)
   }
 
   const cancelOrder = async (orderId: string) => {
     try {
-      // Reset table status and clear order (no proper backend endpoint available)
+      // Reset table status back to TERSEDIA (available)
+      const tableNumber = localStorage.getItem("tableNumber")
+      if (tableNumber) {
+        try {
+          const response = await fetch(
+            `${API_URLS.TABLE_SERVICE_URL}${API_URLS.TABLE_API_URL}/update-status?tableNumber=${tableNumber}&status=TERSEDIA`,
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+              },
+            }
+          )
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            console.warn("Failed to reset table status:", errorText)
+          } else {
+            console.log(`Table ${tableNumber} status reset to TERSEDIA`)
+          }
+        } catch (error) {
+          console.warn("Error resetting table status:", error)
+        }
+      }
+
+      // Always clear localStorage
       localStorage.removeItem("currentOrderId")
       localStorage.removeItem("cart")
       
@@ -126,7 +170,10 @@ export default function CustomerDashboardPage() {
         description: "Order cleared and table freed for new orders.",
       })
     } catch (error) {
-      console.error("Error clearing order:", error)
+      console.warn("Error clearing order:", error)
+      // Still clear localStorage even if there's an error
+      localStorage.removeItem("currentOrderId")
+      localStorage.removeItem("cart")
     }
   }
 
@@ -282,39 +329,26 @@ export default function CustomerDashboardPage() {
     try {
       let orderId = localStorage.getItem("currentOrderId")
       
-      // If no order exists, create one first
+      // If no order ID, create one
       if (!orderId) {
-        console.log("No existing order found, creating new order for table", tableNumber)
-        const newOrder = await orderService.createOrder(tableNumber)
-        
-        if (!newOrder) {
-          throw new Error("Failed to create order. Please try selecting a table again.")
-        }
-        
-        orderId = newOrder.id
+        orderId = `temp-${Date.now()}-${tableNumber}`
         localStorage.setItem("currentOrderId", orderId)
-        
-        toast({
-          title: "Order created",
-          description: `Created new order ${orderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
-        })
       }
 
-      // Order exists or was just created, save cart and navigate
+      // Save cart and navigate to checkout
       localStorage.setItem("cart", JSON.stringify(cartItems))
       
       toast({
         title: "Proceeding to checkout",
-        description: `Using order ${orderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
+        description: `Reviewing your order for table ${tableNumber}.`,
       })
       
       router.push("/customer/checkout")
       
     } catch (error) {
-      console.error("Error placing order:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Could not place order. Please try again.",
+        description: "Could not place order. Please try again.",
         variant: "destructive",
       })
     }
@@ -387,8 +421,16 @@ export default function CustomerDashboardPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
+                onClick={async () => {
+                  // Release current table before changing
+                  const currentOrderId = localStorage.getItem("currentOrderId")
+                  if (currentOrderId && tableNumber) {
+                    await resetTableAndOrder(currentOrderId, tableNumber)
+                  }
+                  
                   localStorage.removeItem("tableNumber")
+                  localStorage.removeItem("currentOrderId")
+                  localStorage.removeItem("cart")
                   router.push("/customer/table-select")
                 }}
                 className="flex items-center gap-1"
