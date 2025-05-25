@@ -280,18 +280,32 @@ export default function CustomerDashboardPage() {
     }
 
     try {
-      const existingOrderId = localStorage.getItem("currentOrderId")
+      let orderId = localStorage.getItem("currentOrderId")
       
-      if (!existingOrderId) {
-        throw new Error("No order found. Please select a table first.")
+      // If no order exists, create one first
+      if (!orderId) {
+        console.log("No existing order found, creating new order for table", tableNumber)
+        const newOrder = await orderService.createOrder(tableNumber)
+        
+        if (!newOrder) {
+          throw new Error("Failed to create order. Please try selecting a table again.")
+        }
+        
+        orderId = newOrder.id
+        localStorage.setItem("currentOrderId", orderId)
+        
+        toast({
+          title: "Order created",
+          description: `Created new order ${orderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
+        })
       }
 
-      // Order already exists from table selection, just save cart and navigate
+      // Order exists or was just created, save cart and navigate
       localStorage.setItem("cart", JSON.stringify(cartItems))
       
       toast({
         title: "Proceeding to checkout",
-        description: `Using order ${existingOrderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
+        description: `Using order ${orderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
       })
       
       router.push("/customer/checkout")
