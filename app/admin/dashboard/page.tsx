@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Clock, DollarSign, Edit, LogOut, Plus, ShoppingBag, Trash2, Users } from "lucide-react"
+import { Clock, DollarSign, Edit, LogOut, Plus, ShoppingBag, Trash2, Users, Eye } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { API_URLS } from "@/lib/constants"
 import type { MenuItem } from "@/types/menu"
@@ -20,12 +20,42 @@ import DeleteMenuItemDialog from "@/components/menu/delete-menu-item-dialog"
 import type { Coupon } from "@/types/coupon"
 import CouponDialog from "@/components/coupon/coupon-dialog"
 import DeleteCouponDialog from "@/components/coupon/delete-coupon-dialog"
+import type { Table as RzTable, TableListResponse } from "@/types/table"
+import TableDialog from "@/components/table/table-dialog"
+import DeleteTableDialog from "@/components/table/delete-table-dialog"
+import TableOrderDialog from "@/components/table/table-order-dialog"
 
 export default function AdminDashboardPage() {
   const { user, logout } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const { toast } = useToast()
+
+  // Add state for refreshing tables
+  const [tableRefreshTrigger, setTableRefreshTrigger] = useState(0)
+
+  const [tableStats, setTableStats] = useState<{ active: number; total: number }>({ active: 0, total: 0 })
+
+  const refreshTableStats = async () => {
+    try {
+      const response = await fetch(`${API_URLS.TABLE_SERVICE_URL}${API_URLS.TABLE_API_URL}`, {
+        headers: { Authorization: `Bearer ${user?.token ?? ""}` },
+      })
+      if (!response.ok) return
+      const data: TableListResponse = await response.json()
+      const totalTables = data.data.length
+      const activeTables = data.data.filter((t) => t.status === "TERPAKAI").length
+      setTableStats({ active: activeTables, total: totalTables })
+    } catch (_) {
+      setTableStats({ active: 0, total: 0 })
+    }
+  }
+
+  // Function to trigger table refresh
+  const refreshTables = () => {
+    setTableRefreshTrigger((prev) => prev + 1)
+    refreshTableStats()
+  }
 
   useEffect(() => {
     if (!user) {
@@ -137,12 +167,10 @@ export default function AdminDashboardPage() {
                   <CardTitle>Tables</CardTitle>
                   <CardDescription>Manage restaurant tables</CardDescription>
                 </div>
-                <Button className="bg-rose-600 hover:bg-rose-700">
-                  <Plus className="mr-2 h-4 w-4" /> Add Table
-                </Button>
+                <TableActions onSuccess={refreshTables} />
               </CardHeader>
               <CardContent>
-                <TablesTable />
+                <TablesTable refreshTrigger={tableRefreshTrigger} onTableChange={refreshTableStats} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -536,61 +564,145 @@ function OrdersTable() {
   )
 }
 
-function TablesTable() {
-  const tables = [
-    { id: "1", number: "1", status: "occupied", orders: 1 },
-    { id: "2", number: "2", status: "available", orders: 0 },
-    { id: "3", number: "3", status: "occupied", orders: 1 },
-    { id: "4", number: "4", status: "available", orders: 0 },
-    { id: "5", number: "5", status: "occupied", orders: 2 },
-    { id: "6", number: "6", status: "available", orders: 0 },
-    { id: "7", number: "7", status: "occupied", orders: 1 },
-    { id: "8", number: "8", status: "available", orders: 0 },
-  ]
+function TablesTable({ refreshTrigger, onTableChange }: { refreshTrigger: number; onTableChange: () => void }) {
+  const { toast } = useToast()
+  const { user } = useAuth()
+  const [tables, setTables] = useState<RzTable[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [orderOpen, setOrderOpen] = useState(false)
+  const [selectedTable, setSelectedTable] = useState<RzTable | null>(null)
+  const initialFetchCompleted = useRef(false)
+
+  const fetchTables = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`${API_URLS.TABLE_SERVICE_URL}${API_URLS.TABLE_API_URL}`, {
+        headers: { Authorization: `Bearer ${user?.token ?? ""}` },
+      })
+      if (!response.ok) throw new Error(await response.text())
+      const data: TableListResponse = await response.json()
+      setTables(data.data)
+      onTableChange() // Update table stats
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to load tables", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Initial fetch on mount
+  useEffect(() => {
+    if (!initialFetchCompleted.current) {
+      fetchTables()
+      initialFetchCompleted.current = true
+    }
+  }, [])
+
+  // Fetch when refresh trigger changes
+  useEffect(() => {
+    if (initialFetchCompleted.current && refreshTrigger > 0) {
+      fetchTables()
+    }
+  }, [refreshTrigger])
+
+  const filteredTables = tables
+    .filter(
+      (table) =>
+        table.nomorMeja.toString().includes(searchTerm) ||
+        table.status.toLowerCase().includes(searchTerm.toLowerCase()),
+    )
+    .sort((a, b) => a.nomorMeja - b.nomorMeja)
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <Input placeholder="Search tables..." className="max-w-xs" />
+        <Input
+          placeholder="Search tables..."
+          className="max-w-xs"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <Button onClick={fetchTables} variant="outline" size="sm">
+          Refresh
+        </Button>
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Table Number</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Active Orders</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {tables.map((table) => (
-            <TableRow key={table.id}>
-              <TableCell className="font-medium">{table.id}</TableCell>
-              <TableCell>{table.number}</TableCell>
-              <TableCell>
-                {table.status === "occupied" ? (
-                  <Badge className="bg-red-100 text-red-800">Occupied</Badge>
-                ) : (
-                  <Badge className="bg-green-100 text-green-800">Available</Badge>
-                )}
-              </TableCell>
-              <TableCell>{table.orders}</TableCell>
-              <TableCell>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="icon">
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon">
-                    <Trash2 className="h-4 w-4 text-red-500" />
-                  </Button>
-                </div>
-              </TableCell>
+      {loading ? (
+        <div className="text-center py-8">Loading tables...</div>
+      ) : tables.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="text-gray-500">No tables found. Add your first table to get started.</p>
+        </div>
+      ) : filteredTables.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="text-gray-500">No tables match your search.</p>
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>ID</TableHead>
+              <TableHead>Table Number</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Actions</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {filteredTables.map((table) => (
+              <TableRow key={table.id}>
+                <TableCell className="font-medium">{table.id}</TableCell>
+                <TableCell>{table.nomorMeja}</TableCell>
+                <TableCell>
+                  {table.status === "TERPAKAI" ? (
+                    <Badge className="bg-red-100 text-red-800">Occupied</Badge>
+                  ) : (
+                    <Badge className="bg-green-100 text-green-800">Available</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setOrderOpen(true) }}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setEditOpen(true) }}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => { setSelectedTable(table); setDeleteOpen(true) }}>
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+
+      <TableDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        table={selectedTable ?? undefined}
+        onSuccess={fetchTables}
+      />
+
+      {selectedTable && (
+        <>
+          <DeleteTableDialog
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+            table={selectedTable}
+            onSuccess={fetchTables}
+          />
+          <TableOrderDialog
+            open={orderOpen}
+            onOpenChange={setOrderOpen}
+            tableId={selectedTable.id}
+          />
+        </>
+      )}
     </div>
   )
 }
@@ -777,5 +889,29 @@ function CouponsTable() {
         />
       )}
     </div>
+  )
+}
+
+function TableActions({ onSuccess }: { onSuccess: () => void }) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  return (
+    <>
+      <Button 
+        className="bg-rose-600 hover:bg-rose-700" 
+        onClick={() => setDialogOpen(true)}
+      >
+        <Plus className="mr-2 h-4 w-4" /> Add Table
+      </Button>
+      <TableDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        table={undefined} // undefined for new table
+        onSuccess={() => {
+          onSuccess() // Call the refresh function
+          setDialogOpen(false)
+        }}
+      />
+    </>
   )
 }
