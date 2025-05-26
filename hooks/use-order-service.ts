@@ -252,6 +252,54 @@ export function useOrderService() {
     }
   }
 
+  // Confirm order (checkout)
+  const confirmOrder = async (orderId: string): Promise<Order | null> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.ORDER_API_URL}/${orderId}/confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Order not found')
+        } else if (response.status === 400) {
+          throw new Error('Order cannot be confirmed in its current state')
+        }
+        throw new Error(`Failed to confirm order: ${response.statusText}`)
+      }
+
+      const orderResponse: OrderResponse = await response.json()
+      const confirmedOrder: Order = {
+        id: orderResponse.id,
+        tableNumber: orderResponse.tableNumber,
+        status: orderResponse.status,
+        totalPrice: orderResponse.totalPrice,
+        items: orderResponse.items.map(item => ({
+          id: item.id,
+          menuItemId: item.menuItemId,
+          menuItemName: item.menuItemName,
+          price: item.price,
+          quantity: item.quantity,
+          subtotal: item.subtotal,
+        })),
+      }
+
+      setCurrentOrder(confirmedOrder)
+      return confirmedOrder
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return {
     currentOrder,
     isLoading,
@@ -262,6 +310,7 @@ export function useOrderService() {
     updateItemQuantity,
     removeItemFromOrder,
     cancelOrder,
+    confirmOrder,
     setCurrentOrder,
   }
-} 
+}

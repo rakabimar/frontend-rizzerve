@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Search, ShoppingCart, Star } from "lucide-react"
+import { Search, Star, Plus, Minus } from "lucide-react"
 import Image from "next/image"
 import { useToast } from "@/components/ui/use-toast"
 import { API_URLS } from "@/lib/constants"
 import type { MenuItem } from "@/types/menu"
-import RatingStars from "@/components/rating/rating-stars"
 import RatingModal from "@/components/rating/rating-modal"
+import RatingStars from "@/components/rating/rating-stars"
 import { useOrderService } from "@/hooks/use-order-service"
 
 interface MenuItemWithRating extends MenuItem {
@@ -32,6 +32,7 @@ export default function CustomerDashboardPage() {
   const [ratingModalOpen, setRatingModalOpen] = useState(false)
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null)
   const { toast } = useToast()
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null)
   const orderService = useOrderService()
 
   // Helper function to determine menu item type
@@ -57,76 +58,45 @@ export default function CustomerDashboardPage() {
     }
 
     setTableNumber(tableNum)
-    
-    // Check for existing order and handle cleanup/restoration
-    handleExistingOrder()
-    
+
+    // Get or create order ID
+    initializeOrder(tableNum)
     fetchMenuItems()
   }, [router])
 
-  const handleExistingOrder = async () => {
-    const existingOrderId = localStorage.getItem("currentOrderId")
-    const existingCart = localStorage.getItem("cart")
-    
-    if (existingOrderId) {
-      try {
-        // Check if order still exists and its status
-        const order = await orderService.getOrder(existingOrderId)
-        
-        if (order && order.status === "NEW") {
-          // If there's a cart, user came back from checkout - reset table and order ID but keep cart
-          if (existingCart) {
-            await resetTableAndOrder(existingOrderId, order.tableNumber)
-            
-            // Restore cart items
-            setCartItems(JSON.parse(existingCart))
-            
-            toast({
-              title: "Back to ordering",
-              description: "Table freed. You can modify your order and place it again.",
-            })
-          } else {
-            // No cart means user just came from table selection - keep the order ID
-            console.log("Order exists from table selection, keeping order ID:", existingOrderId)
-          }
+  const initializeOrder = async (tableNum: string) => {
+    try {
+      // Check if we already have an order ID
+      let orderId = localStorage.getItem("currentOrderId")
+
+      if (!orderId || orderId.startsWith("temp-")) {
+        // Create a new order
+        console.log("Creating new order for table:", tableNum)
+        const newOrder = await orderService.createOrder(tableNum)
+
+        if (newOrder && newOrder.id) {
+          orderId = newOrder.id
+          localStorage.setItem("currentOrderId", orderId)
+          console.log("New order created with ID:", orderId)
         } else {
-          // Order is already processing/completed or doesn't exist, just clean up
-          localStorage.removeItem("currentOrderId")
-          localStorage.removeItem("cart")
+          throw new Error("Failed to create order")
         }
-      } catch (error) {
-        console.error("Error handling existing order:", error)
-        // Clean up on error
-        localStorage.removeItem("currentOrderId")
-        localStorage.removeItem("cart")
       }
-    }
-  }
 
-  const resetTableAndOrder = async (orderId: string, tableNumber: string) => {
-    try {
-      // Note: Since there's no proper cancel endpoint, we'll just clear localStorage
-      // The table service should reset the table status when the order is not completed
-      localStorage.removeItem("currentOrderId")
-      
-      console.log(`Resetting table ${tableNumber} and clearing order ${orderId}`)
+      setCurrentOrderId(orderId)
+      console.log("Current order ID:", orderId)
     } catch (error) {
-      console.error("Error resetting table and order:", error)
-    }
-  }
+      console.error("Error initializing order:", error)
+      // Fallback to temporary ID if order service fails
+      const tempOrderId = `temp-${Date.now()}`
+      localStorage.setItem("currentOrderId", tempOrderId)
+      setCurrentOrderId(tempOrderId)
 
-  const cancelOrder = async (orderId: string) => {
-    try {
-      // Reset table status and clear order (no proper backend endpoint available)
-      localStorage.removeItem("currentOrderId")
-      localStorage.removeItem("cart")
-      
       toast({
-        title: "Order cancelled",
-        description: "Order cleared and table freed for new orders.",
+        title: "Warning",
+        description: "Using offline mode. Some features may be limited.",
+        variant: "destructive",
       })
-    } catch (error) {
-      console.error("Error clearing order:", error)
     }
   }
 
@@ -154,53 +124,46 @@ export default function CustomerDashboardPage() {
             console.log(`Item ${item.name}: isSpicy=${item.isSpicy}, isCold=${item.isCold}, derivedType=${derivedType}`)
 
             // Fetch average rating
+            const averageResponse = await fetch(
+              `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}/average`,
+            )
+
+            // Fetch all ratings for this item to count them
+            const ratingsResponse = await fetch(
+              `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}`,
+            )
+
             let averageRating = 0
             let totalRatings = 0
 
-            try {
-              const averageResponse = await fetch(
-                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}/average`
-              )
+            // Handle average rating response
+            if (averageResponse.ok) {
+              const averageText = await averageResponse.text()
+              console.log(`Average rating response for item ${item.id}:`, averageText)
 
-              // Fetch all ratings for this item to count them
-              const ratingsResponse = await fetch(
-                `${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/item/${item.id}`
-              )
-
-              // Handle average rating response
-              if (averageResponse.ok) {
-                const averageText = await averageResponse.text()
-                console.log(`Average rating response for item ${item.id}:`, averageText)
-
-                // The endpoint returns a plain number, not JSON
-                if (averageText && averageText.trim() !== "") {
-                  averageRating = Number.parseFloat(averageText)
-                  // Handle NaN case
-                  if (isNaN(averageRating)) {
-                    averageRating = 0
-                  }
+              // The endpoint returns a plain number, not JSON
+              if (averageText && averageText.trim() !== "") {
+                averageRating = Number.parseFloat(averageText)
+                // Handle NaN case
+                if (isNaN(averageRating)) {
+                  averageRating = 0
                 }
-              } else {
-                console.log(`No average rating found for item ${item.id}`)
               }
+            } else {
+              console.log(`No average rating found for item ${item.id}`)
+            }
 
-              // Handle ratings count response
-              if (ratingsResponse.ok) {
-                const ratingsData = await ratingsResponse.json()
-                console.log(`Ratings data for item ${item.id}:`, ratingsData)
+            // Handle ratings count response
+            if (ratingsResponse.ok) {
+              const ratingsData = await ratingsResponse.json()
+              console.log(`Ratings data for item ${item.id}:`, ratingsData)
 
-                // Count the ratings array
-                if (Array.isArray(ratingsData)) {
-                  totalRatings = ratingsData.length
-                }
-              } else {
-                console.log(`No ratings found for item ${item.id}`)
+              // Count the ratings array
+              if (Array.isArray(ratingsData)) {
+                totalRatings = ratingsData.length
               }
-            } catch (error) {
-              console.warn(`Rating service unavailable for item ${item.id}, using defaults:`, error)
-              // Use default values when rating service is unavailable
-              averageRating = 0
-              totalRatings = 0
+            } else {
+              console.log(`No ratings found for item ${item.id}`)
             }
 
             console.log(`Item ${item.name}: Average=${averageRating}, Count=${totalRatings}`)
@@ -269,7 +232,7 @@ export default function CustomerDashboardPage() {
     setCartItems((prev) => prev.map((item) => (item.id === id ? { ...item, quantity } : item)))
   }
 
-  const placeOrder = async () => {
+  const placeOrder = () => {
     if (cartItems.length === 0) {
       toast({
         title: "Cart is empty",
@@ -279,68 +242,34 @@ export default function CustomerDashboardPage() {
       return
     }
 
-    try {
-      let orderId = localStorage.getItem("currentOrderId")
-      
-      // If no order exists, create one first
-      if (!orderId) {
-        console.log("No existing order found, creating new order for table", tableNumber)
-        const newOrder = await orderService.createOrder(tableNumber)
-        
-        if (!newOrder) {
-          throw new Error("Failed to create order. Please try selecting a table again.")
-        }
-        
-        orderId = newOrder.id
-        localStorage.setItem("currentOrderId", orderId)
-        
-        toast({
-          title: "Order created",
-          description: `Created new order ${orderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
-        })
-      }
-
-      // Order exists or was just created, save cart and navigate
-      localStorage.setItem("cart", JSON.stringify(cartItems))
-      
-      toast({
-        title: "Proceeding to checkout",
-        description: `Using order ${orderId.substring(0, 8).toUpperCase()} for table ${tableNumber}.`,
-      })
-      
-      router.push("/customer/checkout")
-      
-    } catch (error) {
-      console.error("Error placing order:", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Could not place order. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const clearCart = async () => {
-    // Clear any pending order and reset table status
-    const existingOrderId = localStorage.getItem("currentOrderId")
-    if (existingOrderId) {
-      setCartItems([]) // Clear cart items first
-      await cancelOrder(existingOrderId)
-    } else {
-      // Just clear cart and localStorage
-      setCartItems([])
-      localStorage.removeItem("cart")
-      localStorage.removeItem("currentOrderId")
-      
-      toast({
-        title: "Cart cleared",
-        description: "Your cart has been cleared",
-      })
-    }
+    // Save cart to localStorage for checkout
+    localStorage.setItem("cart", JSON.stringify(cartItems))
+    router.push("/customer/checkout")
   }
 
   const handleRateItem = (item: MenuItem) => {
-    setSelectedMenuItem(item)
+    if (!currentOrderId) {
+      toast({
+        title: "Error",
+        description: "No active order found. Please start over.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Convert menu item to MenuItem format for rating modal
+    const menuItem: MenuItem = {
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      image: item.image,
+      available: item.available,
+      type: item.type || "FOOD",
+      isSpicy: item.isSpicy,
+      isCold: item.isCold,
+    }
+    setSelectedMenuItem(menuItem)
     setRatingModalOpen(true)
   }
 
@@ -369,6 +298,7 @@ export default function CustomerDashboardPage() {
   ]
 
   const totalPrice = cartItems.reduce((total, item) => total + item.price * item.quantity, 0)
+  const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0)
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-screen">Loading menu...</div>
@@ -389,6 +319,7 @@ export default function CustomerDashboardPage() {
                 size="sm"
                 onClick={() => {
                   localStorage.removeItem("tableNumber")
+                  localStorage.removeItem("currentOrderId")
                   router.push("/customer/table-select")
                 }}
                 className="flex items-center gap-1"
@@ -451,161 +382,135 @@ export default function CustomerDashboardPage() {
                         {item.derivedType}
                       </Badge>
                     </div>
+                    {item.derivedType === "FOOD" && item.isSpicy && (
+                      <div className="absolute top-2 left-2">
+                        <Badge className="bg-red-100 text-red-800">🌶️ Spicy</Badge>
+                      </div>
+                    )}
+                    {item.derivedType === "DRINK" && item.isCold && (
+                      <div className="absolute top-2 left-2">
+                        <Badge className="bg-blue-100 text-blue-800">❄️ Cold</Badge>
+                      </div>
+                    )}
                   </div>
 
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-lg">{item.name}</CardTitle>
-                      <div className="flex items-center gap-1">
-                        {item.totalRatings && item.totalRatings > 0 ? (
-                          <>
-                            <RatingStars rating={item.averageRating || 0} size="sm" readOnly />
-                            <span className="text-xs text-gray-500">({item.totalRatings})</span>
-                          </>
-                        ) : (
-                          <span className="text-xs text-gray-400">No ratings</span>
-                        )}
-                      </div>
+                  <div className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-semibold text-lg">{item.name}</h3>
+                      <span className="font-bold text-rose-600">${item.price.toFixed(2)}</span>
                     </div>
-                    <CardDescription>{item.description}</CardDescription>
-                  </CardHeader>
 
-                  <CardContent>
-                    <div className="flex justify-between items-center">
-                      <p className="font-bold text-lg">${item.price.toFixed(2)}</p>
-                      <div className="flex gap-2">
-                        {item.derivedType === "FOOD" && item.isSpicy && (
-                          <Badge className="bg-red-100 text-red-800">🌶️ Spicy</Badge>
-                        )}
-                        {item.derivedType === "DRINK" && item.isCold && (
-                          <Badge className="bg-blue-100 text-blue-800">🧊 Cold</Badge>
-                        )}
-                      </div>
+                    <p className="text-gray-600 text-sm mb-3">{item.description}</p>
+
+                    {/* Rating Display */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <RatingStars rating={item.averageRating || 0} size="sm" readOnly />
+                      <span className="text-sm text-gray-500">
+                        {item.totalRatings ? `(${item.totalRatings} reviews)` : "No reviews"}
+                      </span>
                     </div>
-                  </CardContent>
 
-                  <CardFooter className="flex gap-2">
-                    <Button className="flex-1 bg-rose-600 hover:bg-rose-700" onClick={() => addToCart(item)}>
-                      <Plus className="mr-2 h-4 w-4" /> Add to Order
-                    </Button>
-                    <Button variant="outline" size="icon" onClick={() => handleRateItem(item)}>
-                      <Star className="h-4 w-4" />
-                    </Button>
-                  </CardFooter>
+                    <div className="flex gap-2">
+                      <Button className="flex-1 bg-rose-600 hover:bg-rose-700" onClick={() => addToCart(item)}>
+                        Add to Cart
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleRateItem(item)}
+                        className="flex-shrink-0"
+                      >
+                        <Star className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                 </Card>
               ))}
             </div>
 
             {filteredMenuItems.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-gray-500">No menu items found matching your criteria.</p>
+                <h3 className="text-xl font-medium mb-2">No items found</h3>
+                <p className="text-gray-500">
+                  {searchTerm
+                    ? `No results for "${searchTerm}"`
+                    : selectedCategory !== "all"
+                      ? `No items in the ${selectedCategory} category`
+                      : "No menu items available"}
+                </p>
               </div>
             )}
           </div>
 
           {/* Cart Sidebar */}
-          <div>
-            <Card className="sticky top-8">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <ShoppingCart className="mr-2 h-5 w-5" /> Your Order
-                </CardTitle>
-                <CardDescription>
-                  {cartItems.length} {cartItems.length === 1 ? "item" : "items"} in your order
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+          <div className="lg:col-span-1">
+            <Card className="sticky top-4">
+              <div className="p-4 border-b">
+                <h3 className="font-semibold text-lg">Your Order</h3>
+                <p className="text-sm text-gray-500">
+                  {totalItems} {totalItems === 1 ? "item" : "items"}
+                </p>
+              </div>
+
+              <div className="p-4">
                 {cartItems.length === 0 ? (
-                  <div className="text-center py-6 text-gray-500">Your order is empty</div>
+                  <p className="text-gray-500 text-center py-8">Your cart is empty</p>
                 ) : (
                   <div className="space-y-4">
                     {cartItems.map((item) => (
-                      <div key={item.id} className="flex justify-between border-b pb-2">
-                        <div>
-                          <p className="font-medium">{item.name}</p>
-                          <div className="flex items-center mt-1">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                            >
-                              -
-                            </Button>
-                            <span className="mx-2">{item.quantity}</span>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                            >
-                              +
-                            </Button>
-                          </div>
+                      <div key={item.id} className="flex justify-between items-center">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{item.name}</p>
+                          <p className="text-xs text-gray-500">${item.price.toFixed(2)} each</p>
                         </div>
-                        <div className="text-right">
-                          <p>${(item.price * item.quantity).toFixed(2)}</p>
+                        <div className="flex items-center gap-2">
                           <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-500 h-6 mt-1"
-                            onClick={() => removeFromCart(item.id)}
+                            variant="outline"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
                           >
-                            Remove
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="text-sm w-6 text-center">{item.quantity}</span>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          >
+                            <Plus className="h-3 w-3" />
                           </Button>
                         </div>
                       </div>
                     ))}
-
-                    <div className="pt-2">
-                      <div className="flex justify-between">
-                        <span>Subtotal</span>
-                        <span>${totalPrice.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tax (10%)</span>
-                        <span>${(totalPrice * 0.1).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between font-bold text-lg mt-2">
-                        <span>Total</span>
-                        <span>${(totalPrice * 1.1).toFixed(2)}</span>
-                      </div>
-                    </div>
                   </div>
                 )}
-              </CardContent>
-              <CardFooter>
-                <div className="w-full space-y-2">
-                  <Button
-                    className="w-full bg-rose-600 hover:bg-rose-700"
-                    disabled={cartItems.length === 0}
-                    onClick={placeOrder}
-                  >
-                    Place Order
+              </div>
+
+              {cartItems.length > 0 && (
+                <div className="p-4 border-t">
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="font-semibold">Total</span>
+                    <span className="font-bold text-lg">${totalPrice.toFixed(2)}</span>
+                  </div>
+                  <Button className="w-full bg-rose-600 hover:bg-rose-700" onClick={placeOrder}>
+                    Proceed to Checkout
                   </Button>
-                  {cartItems.length > 0 && (
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={clearCart}
-                    >
-                      Clear Cart
-                    </Button>
-                  )}
                 </div>
-              </CardFooter>
+              )}
             </Card>
           </div>
         </div>
       </main>
 
       {/* Rating Modal */}
-      {selectedMenuItem && (
+      {selectedMenuItem && currentOrderId && (
         <RatingModal
           open={ratingModalOpen}
           onOpenChange={setRatingModalOpen}
           menuItem={selectedMenuItem}
-          tableNumber={tableNumber}
+          orderId={currentOrderId}
           onRatingSubmitted={handleRatingSubmitted}
         />
       )}

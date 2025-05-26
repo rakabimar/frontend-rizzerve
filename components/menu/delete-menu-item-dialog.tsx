@@ -14,6 +14,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { API_URLS } from "@/lib/constants"
 import type { MenuItem } from "@/types/menu"
+import { useAuth } from "@/context/auth-context"
 
 interface DeleteMenuItemDialogProps {
   open: boolean
@@ -24,11 +25,11 @@ interface DeleteMenuItemDialogProps {
 
 export default function DeleteMenuItemDialog({ open, onOpenChange, menuItem, onSuccess }: DeleteMenuItemDialogProps) {
   const { toast } = useToast()
+  const { user } = useAuth()
   const [isDeleting, setIsDeleting] = useState(false)
 
   const handleDelete = async () => {
-    const authToken = localStorage.getItem("auth_token")
-    if (!authToken) {
+    if (!user?.token) {
       toast({
         title: "Authentication Error",
         description: "You must be logged in to perform this action",
@@ -40,17 +41,49 @@ export default function DeleteMenuItemDialog({ open, onOpenChange, menuItem, onS
     setIsDeleting(true)
 
     try {
+      console.log("Attempting to delete menu item:", menuItem.id)
+      console.log("Using auth token:", user.token ? "Token present" : "No token")
+
       const response = await fetch(`${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}/${menuItem.id}`, {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${user.token}`,
+          "Content-Type": "application/json",
         },
       })
 
+      console.log("Delete response status:", response.status)
+      console.log("Delete response headers:", Object.fromEntries(response.headers.entries()))
+
       if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || "Failed to delete menu item")
+        let errorMessage = "Failed to delete menu item"
+
+        // Handle different error status codes
+        if (response.status === 401) {
+          errorMessage = "Authentication failed. Please log in again."
+        } else if (response.status === 403) {
+          errorMessage = "You don't have permission to delete menu items."
+        } else if (response.status === 404) {
+          errorMessage = "Menu item not found."
+        } else {
+          // Try to get error message from response
+          try {
+            const errorText = await response.text()
+            console.log("Error response text:", errorText)
+            if (errorText) {
+              errorMessage = errorText
+            }
+          } catch (textError) {
+            console.error("Could not read error response:", textError)
+          }
+        }
+
+        throw new Error(errorMessage)
       }
+
+      // Check if response has content
+      const responseText = await response.text()
+      console.log("Delete response body:", responseText)
 
       toast({
         title: "Menu Item Deleted",
