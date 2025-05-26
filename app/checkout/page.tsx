@@ -1,16 +1,19 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useCart } from "@/context/cart-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { ArrowLeft, Check } from "lucide-react"
+import { ArrowLeft, Check, Star } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { useToast } from "@/components/ui/use-toast"
+import { API_URLS } from "@/lib/constants"
+import RatingModal from "@/components/rating/rating-modal"
+import type { MenuItem } from "@/types/menu"
 
 export default function CheckoutPage() {
   const { cartItems, tableNumber, totalPrice, clearCart } = useCart()
@@ -19,6 +22,9 @@ export default function CheckoutPage() {
   const [discount, setDiscount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [orderPlaced, setOrderPlaced] = useState(false)
+  const [checkoutId, setCheckoutId] = useState<string | null>(null)
+  const [ratingModalOpen, setRatingModalOpen] = useState(false)
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null)
   const router = useRouter()
   const { toast } = useToast()
 
@@ -33,17 +39,16 @@ export default function CheckoutPage() {
 
     setLoading(true)
     try {
-      // In a real app, this would validate the coupon with your API
-      // Simulating API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Simulate a valid coupon with 10% discount
-      if (couponCode.toLowerCase() === "welcome10") {
+      // Validate coupon with coupon service
+      const response = await fetch(`${API_URLS.COUPON_SERVICE_URL}${API_URLS.COUPON_API_URL}/${couponCode}`)
+      
+      if (response.ok) {
+        const couponData = await response.json()
         setCouponApplied(true)
-        setDiscount(10)
+        setDiscount(couponData.discountPercentage || 10) // Use actual discount from backend
         toast({
           title: "Coupon applied",
-          description: "10% discount has been applied to your order",
+          description: `${couponData.discountPercentage || 10}% discount has been applied to your order`,
         })
       } else {
         toast({
@@ -69,12 +74,45 @@ export default function CheckoutPage() {
 
     setLoading(true)
     try {
-      // In a real app, this would submit the order to your API
-      // Simulating API call
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      // Get the current order ID from localStorage
+      const currentOrderId = localStorage.getItem("currentOrderId")
+      
+      if (!currentOrderId) {
+        throw new Error("No active order found")
+      }
 
+      // Create checkout request
+      const checkoutRequest = {
+        orderId: currentOrderId,
+        couponCode: couponApplied ? couponCode : null
+      }
+
+      console.log("Creating checkout with request:", checkoutRequest)
+
+      // Call checkout service
+      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.CHECKOUT_API_URL}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(checkoutRequest),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || "Failed to create checkout")
+      }
+
+      const checkoutData = await response.json()
+      console.log("Checkout created successfully:", checkoutData)
+
+      setCheckoutId(checkoutData.checkoutId)
       setOrderPlaced(true)
       clearCart()
+
+      // Clear order-related localStorage items
+      localStorage.removeItem("currentOrderId")
+      localStorage.removeItem("cart")
 
       toast({
         title: "Order placed successfully",
@@ -84,12 +122,37 @@ export default function CheckoutPage() {
       console.error("Error placing order:", error)
       toast({
         title: "Error",
-        description: "Could not place your order. Please try again.",
+        description: error instanceof Error ? error.message : "Could not place your order. Please try again.",
         variant: "destructive",
       })
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleRateItem = (cartMenuItem: any) => {
+    // Convert cart MenuItem to menu MenuItem type
+    const menuItem: MenuItem = {
+      id: cartMenuItem.id,
+      name: cartMenuItem.name,
+      description: cartMenuItem.description,
+      price: cartMenuItem.price,
+      image: cartMenuItem.image,
+      available: cartMenuItem.available,
+      isSpicy: cartMenuItem.isSpicy,
+      isCold: cartMenuItem.isCold,
+      type: cartMenuItem.isSpicy !== undefined ? "FOOD" : "DRINK" // Determine type based on properties
+    }
+    setSelectedMenuItem(menuItem)
+    setRatingModalOpen(true)
+  }
+
+  const handleRatingSubmitted = () => {
+    // Rating submitted successfully
+    toast({
+      title: "Rating submitted",
+      description: "Thank you for your feedback!",
+    })
   }
 
   if (orderPlaced) {
@@ -105,15 +168,15 @@ export default function CheckoutPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-center">
-              <p className="font-medium">Order Number</p>
-              <p className="text-2xl font-bold">{Math.floor(Math.random() * 10000)}</p>
+              <p className="font-medium">Checkout ID</p>
+              <p className="text-lg font-bold">{checkoutId || "Processing..."}</p>
             </div>
             <div className="text-center">
               <p className="font-medium">Table Number</p>
               <p className="text-xl">{tableNumber}</p>
             </div>
             <p className="text-center text-gray-500">
-              Your order has been sent to the kitchen and will be served shortly.
+              Your order status has been changed to PROCESSING and will be served shortly.
             </p>
           </CardContent>
           <CardFooter>
@@ -167,7 +230,17 @@ export default function CheckoutPage() {
                           <h3 className="font-medium">{item.menuItem.name}</h3>
                           <p className="text-sm text-gray-500">Qty: {item.quantity}</p>
                         </div>
-                        <span className="font-medium">${(item.menuItem.price * item.quantity).toFixed(2)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">${(item.menuItem.price * item.quantity).toFixed(2)}</span>
+                          <Button 
+                            variant="outline" 
+                            size="icon"
+                            onClick={() => handleRateItem(item.menuItem)}
+                            className="h-8 w-8"
+                          >
+                            <Star className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -242,6 +315,17 @@ export default function CheckoutPage() {
           </Card>
         </div>
       </div>
+
+      {/* Rating Modal */}
+      {selectedMenuItem && tableNumber && (
+        <RatingModal
+          open={ratingModalOpen}
+          onOpenChange={setRatingModalOpen}
+          menuItem={selectedMenuItem}
+          tableNumber={tableNumber}
+          onRatingSubmitted={handleRatingSubmitted}
+        />
+      )}
     </div>
   )
 }
