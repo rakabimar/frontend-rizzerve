@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Check, Star, Trash2, Edit } from "lucide-react"
+import { ArrowLeft, Check, Trash2, Edit } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Separator } from "@/components/ui/separator"
@@ -37,11 +37,84 @@ export default function CheckoutPage() {
   const { toast } = useToast()
   const orderService = useOrderService()
 
-  // Generate a table ID based on table number (same logic as in RatingModal)
-  const generateTableId = (tableNum: string) => {
-    // For now, we'll generate a consistent UUID based on table number
-    // In a real app, you'd fetch the actual table ID from your table service
-    return `204a1dff-a4c7-48e3-abcd-61f6342acc55`
+  const fetchCustomerRatings = async (items: any[], orderId: string) => {
+    setLoadingRatings(true)
+    try {
+      console.log("Fetching ratings for order ID:", orderId)
+
+      // Fetch all ratings for this order (using orderId as mejaId)
+      const response = await fetch(`${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/meja/${orderId}`)
+
+      if (response.ok) {
+        const allOrderRatings = await response.json()
+        console.log("All order ratings:", allOrderRatings)
+
+        if (!Array.isArray(allOrderRatings)) {
+          console.warn("Expected array of ratings, got:", typeof allOrderRatings)
+          setCustomerRatings([])
+          return
+        }
+
+        const ratings: CustomerRating[] = []
+
+        // Process all ratings and fetch item names
+        for (const rating of allOrderRatings) {
+          if (!rating.itemId || !rating.ratingId) {
+            console.warn("Invalid rating object:", rating)
+            continue
+          }
+
+          let itemName = "Unknown Item"
+
+          // First try to find item name from cart items
+          const cartItem = items.find((item) => item.id === rating.itemId)
+          if (cartItem) {
+            itemName = cartItem.name
+          } else {
+            // If not in cart, fetch item name from menu service
+            try {
+              const menuResponse = await fetch(`${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}/${rating.itemId}`)
+              if (menuResponse.ok) {
+                const menuItem = await menuResponse.json()
+                itemName = menuItem.name || `Item ${rating.itemId.substring(0, 8)}`
+              } else {
+                itemName = `Item ${rating.itemId.substring(0, 8)}`
+              }
+            } catch (error) {
+              console.error(`Error fetching menu item ${rating.itemId}:`, error)
+              itemName = `Item ${rating.itemId.substring(0, 8)}`
+            }
+          }
+
+          ratings.push({
+            ratingId: rating.ratingId,
+            itemId: rating.itemId,
+            itemName: itemName,
+            value: rating.value || 0,
+            canUpdate: rating.canUpdate !== false, // Default to true if not specified
+          })
+        }
+
+        console.log("Processed customer ratings:", ratings)
+        setCustomerRatings(ratings)
+      } else if (response.status === 404) {
+        console.log("No ratings found for this order")
+        setCustomerRatings([])
+      } else {
+        console.error("Failed to fetch ratings:", response.status, response.statusText)
+        const errorText = await response.text()
+        console.error("Error response:", errorText)
+      }
+    } catch (error) {
+      console.error("Error fetching customer ratings:", error)
+      toast({
+        title: "Warning",
+        description: "Could not load your previous ratings",
+        variant: "destructive",
+      })
+    } finally {
+      setLoadingRatings(false)
+    }
   }
 
   useEffect(() => {
@@ -68,8 +141,10 @@ export default function CheckoutPage() {
     if (storedCart) {
       const items = JSON.parse(storedCart)
       setCartItems(items)
-      // Fetch customer ratings for these items
-      fetchCustomerRatings(items, tableNum)
+      // Fetch customer ratings for these items using order ID
+      if (orderId) {
+        fetchCustomerRatings(items, orderId)
+      }
     } else {
       // If no cart items, redirect to menu
       router.push("/customer/dashboard")
@@ -79,66 +154,6 @@ export default function CheckoutPage() {
     setLoading(false)
   }, [router])
 
-  const fetchCustomerRatings = async (items: any[], tableNum: string) => {
-    setLoadingRatings(true)
-    try {
-      const tableId = generateTableId(tableNum)
-      console.log("Fetching ratings for table ID:", tableId)
-      
-      // Fetch all ratings for this table once
-      const response = await fetch(`${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/meja/${tableId}`)
-      
-      if (response.ok) {
-        const allTableRatings = await response.json()
-        console.log("All table ratings:", allTableRatings)
-        
-        const ratings: CustomerRating[] = []
-        
-        // Process all ratings and fetch item names
-        for (const rating of allTableRatings) {
-          let itemName = "Unknown Item"
-          
-          // First try to find item name from cart items
-          const cartItem = items.find(item => item.id === rating.itemId)
-          if (cartItem) {
-            itemName = cartItem.name
-          } else {
-            // If not in cart, fetch item name from menu service
-            try {
-              const menuResponse = await fetch(`${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}/${rating.itemId}`)
-              if (menuResponse.ok) {
-                const menuItem = await menuResponse.json()
-                itemName = menuItem.name || `Item ${rating.itemId.substring(0, 8)}`
-              } else {
-                itemName = `Item ${rating.itemId.substring(0, 8)}`
-              }
-            } catch (error) {
-              console.error(`Error fetching menu item ${rating.itemId}:`, error)
-              itemName = `Item ${rating.itemId.substring(0, 8)}`
-            }
-          }
-          
-          ratings.push({
-            ratingId: rating.ratingId,
-            itemId: rating.itemId,
-            itemName: itemName,
-            value: rating.value,
-            canUpdate: rating.canUpdate
-          })
-        }
-        
-        console.log("Processed customer ratings:", ratings)
-        setCustomerRatings(ratings)
-      } else {
-        console.error("Failed to fetch ratings:", response.status, response.statusText)
-      }
-    } catch (error) {
-      console.error("Error fetching customer ratings:", error)
-    } finally {
-      setLoadingRatings(false)
-    }
-  }
-
   const handleDeleteRating = async (ratingId: string, itemId: string) => {
     try {
       const response = await fetch(`${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/${ratingId}`, {
@@ -147,8 +162,8 @@ export default function CheckoutPage() {
 
       if (response.ok) {
         // Remove the rating from local state
-        setCustomerRatings(prev => prev.filter(rating => rating.ratingId !== ratingId))
-        
+        setCustomerRatings((prev) => prev.filter((rating) => rating.ratingId !== ratingId))
+
         toast({
           title: "Rating deleted",
           description: "Your rating has been removed successfully",
@@ -169,7 +184,7 @@ export default function CheckoutPage() {
 
   const handleEditRating = (rating: CustomerRating) => {
     // Find the cart item to create MenuItem object
-    const cartItem = cartItems.find(item => item.id === rating.itemId)
+    const cartItem = cartItems.find((item) => item.id === rating.itemId)
     if (cartItem) {
       const menuItem: MenuItem = {
         id: cartItem.id,
@@ -180,7 +195,7 @@ export default function CheckoutPage() {
         available: cartItem.available !== false,
         isSpicy: cartItem.isSpicy,
         isCold: cartItem.isCold,
-        type: cartItem.isSpicy !== undefined ? "FOOD" : "DRINK"
+        type: cartItem.isSpicy !== undefined ? "FOOD" : "DRINK",
       }
       setSelectedMenuItem(menuItem)
       setRatingModalOpen(true)
@@ -191,8 +206,8 @@ export default function CheckoutPage() {
 
   const handleRatingSubmitted = () => {
     // Rating submitted successfully, refresh ratings
-    if (tableNumber) {
-      fetchCustomerRatings(cartItems, tableNumber)
+    if (currentOrderId) {
+      fetchCustomerRatings(cartItems, currentOrderId)
     }
     toast({
       title: "Rating submitted",
@@ -213,11 +228,11 @@ export default function CheckoutPage() {
 
     setLoading(true)
     try {
-      let realOrderId = currentOrderId
+      const realOrderId = currentOrderId
 
       // Remove duplicate order creation - order should already exist from table selection
       // Just check if we have a valid order ID
-      if (currentOrderId.startsWith('temp-')) {
+      if (currentOrderId.startsWith("temp-")) {
         toast({
           title: "Error",
           description: "Invalid order. Please start over by selecting a table.",
@@ -227,42 +242,43 @@ export default function CheckoutPage() {
         return
       }
 
-      // Create checkout request using the checkout service
-      const checkoutRequest = {
-        orderId: realOrderId,
-        couponCode: null // No coupon for now
+      // Step 1: Add each cart item to the existing order
+      for (const cartItem of cartItems) {
+        await orderService.addItemToOrder(realOrderId, cartItem.id, cartItem.quantity)
       }
 
-      console.log("Creating checkout with request:", checkoutRequest)
+      // Step 2: Confirm the order (changes status to PROCESSING)
+      await orderService.confirmOrder(realOrderId)
 
-      // Call checkout service instead of manually adding items
-      const response = await fetch(`${API_URLS.ORDER_SERVICE_URL}${API_URLS.CHECKOUT_API_URL}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(checkoutRequest),
-      })
+      // Step 3: Checkout the meja in rating service to disable further rating updates
+      try {
+        const checkoutResponse = await fetch(`${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/meja/${realOrderId}/checkout`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || "Failed to create checkout")
+        if (checkoutResponse.ok) {
+          console.log("Successfully checked out meja in rating service")
+        } else {
+          console.warn("Failed to checkout meja in rating service:", checkoutResponse.status)
+          // Don't fail the entire checkout process if rating service checkout fails
+        }
+      } catch (ratingError) {
+        console.error("Error calling rating service checkout:", ratingError)
+        // Don't fail the entire checkout process if rating service is unavailable
       }
-
-      const checkoutData = await response.json()
-      console.log("Checkout created successfully:", checkoutData)
 
       // Clear cart and order ID, set order completed
       localStorage.removeItem("cart")
       localStorage.removeItem("currentOrderId")
-      setOrderNumber(checkoutData.checkoutId ? 
-        checkoutData.checkoutId.substring(0, 8).toUpperCase() : 
-        `T${Date.now().toString().slice(-6)}`)
+      setOrderNumber(realOrderId.substring(0, 8).toUpperCase())
       setOrderCompleted(true)
 
       toast({
-        title: "Order placed successfully",
-        description: "Your order status has been changed to PROCESSING",
+        title: "Order confirmed successfully",
+        description: "Your order is being prepared in the kitchen",
       })
     } catch (error) {
       console.error("Error confirming order:", error)
@@ -301,7 +317,7 @@ export default function CheckoutPage() {
               <p className="text-xl">{tableNumber}</p>
             </div>
             <p className="text-center text-gray-500">
-              Your order status has been changed to PROCESSING and will be served shortly.
+              Your order is being prepared in the kitchen and will be served shortly.
             </p>
           </CardContent>
           <CardFooter className="flex justify-center">
@@ -347,13 +363,22 @@ export default function CheckoutPage() {
           <Card>
             <CardHeader>
               <CardTitle>Ratings Made by You</CardTitle>
-              <CardDescription>Your ratings for ordered items</CardDescription>
+              <CardDescription>
+                {loadingRatings ? "Loading your ratings..." : "Your ratings for ordered items"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {customerRatings.length > 0 ? (
+              {loadingRatings ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>Loading your ratings...</p>
+                </div>
+              ) : customerRatings.length > 0 ? (
                 <div className="space-y-4">
                   {customerRatings.map((rating) => (
-                    <div key={rating.ratingId} className="flex justify-between items-center border-b pb-4 last:border-b-0">
+                    <div
+                      key={rating.ratingId}
+                      className="flex justify-between items-center border-b pb-4 last:border-b-0"
+                    >
                       <div className="flex-1">
                         <p className="font-medium">{rating.itemName}</p>
                         <div className="flex items-center gap-2 mt-1">
@@ -433,12 +458,12 @@ export default function CheckoutPage() {
       </main>
 
       {/* Rating Modal */}
-      {selectedMenuItem && tableNumber && (
+      {selectedMenuItem && currentOrderId && (
         <RatingModal
           open={ratingModalOpen}
           onOpenChange={setRatingModalOpen}
           menuItem={selectedMenuItem}
-          tableNumber={tableNumber}
+          orderId={currentOrderId}
           onRatingSubmitted={handleRatingSubmitted}
         />
       )}

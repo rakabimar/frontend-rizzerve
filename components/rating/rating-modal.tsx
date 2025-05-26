@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Dialog,
   DialogContent,
@@ -19,27 +19,49 @@ interface RatingModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   menuItem: MenuItem
-  tableNumber: string
+  orderId: string
   onRatingSubmitted?: () => void
 }
 
-export default function RatingModal({
-  open,
-  onOpenChange,
-  menuItem,
-  tableNumber,
-  onRatingSubmitted,
-}: RatingModalProps) {
+export default function RatingModal({ open, onOpenChange, menuItem, orderId, onRatingSubmitted }: RatingModalProps) {
   const [rating, setRating] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [existingRating, setExistingRating] = useState<any>(null)
   const { toast } = useToast()
 
-  // Generate a table ID based on table number (you might want to fetch this from a table service)
-  const generateTableId = (tableNum: string) => {
-    // For now, we'll generate a consistent UUID based on table number
-    // In a real app, you'd fetch the actual table ID from your table service
-    return `204a1dff-a4c7-48e3-abcd-61f6342acc55`
+  // Check for existing rating when modal opens
+  useEffect(() => {
+    if (open && menuItem && orderId) {
+      checkExistingRating()
+    }
+  }, [open, menuItem, orderId])
+
+  const checkExistingRating = async () => {
+    try {
+      console.log("Checking existing rating for order ID:", orderId, "and item:", menuItem.id)
+
+      // Fetch all ratings for this order (using orderId as mejaId)
+      const response = await fetch(`${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/meja/${orderId}`)
+
+      if (response.ok) {
+        const allRatings = await response.json()
+        console.log("All ratings for order:", allRatings)
+
+        if (Array.isArray(allRatings)) {
+          // Find rating for this specific item
+          const itemRating = allRatings.find((r: any) => r.itemId === menuItem.id)
+          if (itemRating) {
+            console.log("Found existing rating:", itemRating)
+            setExistingRating(itemRating)
+            setRating(itemRating.value)
+          }
+        }
+      } else if (response.status === 404) {
+        console.log("No existing ratings found for this order")
+      }
+    } catch (error) {
+      console.log("No existing rating found or error checking:", error)
+    }
   }
 
   const handleSubmitRating = async () => {
@@ -47,6 +69,15 @@ export default function RatingModal({
       toast({
         title: "Please select a rating",
         description: "You must select at least 1 star to submit a rating",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!orderId) {
+      toast({
+        title: "Error",
+        description: "No active order found",
         variant: "destructive",
       })
       return
@@ -64,7 +95,7 @@ export default function RatingModal({
         ratingData = {
           ratingId: existingRating.ratingId,
           itemId: menuItem.id,
-          mejaId: generateTableId(tableNumber),
+          mejaId: orderId, // Use order ID as mejaId
           value: rating,
           canUpdate: true,
         }
@@ -74,7 +105,7 @@ export default function RatingModal({
         // CREATE new rating - do NOT include ratingId in request body
         ratingData = {
           itemId: menuItem.id,
-          mejaId: generateTableId(tableNumber),
+          mejaId: orderId, // Use order ID as mejaId
           value: rating,
           canUpdate: true,
         }
@@ -87,6 +118,7 @@ export default function RatingModal({
         method,
         body: ratingData,
         isUpdate: !!existingRating,
+        orderId,
       })
 
       const response = await fetch(url, {
@@ -117,6 +149,7 @@ export default function RatingModal({
 
       onOpenChange(false)
       setRating(0)
+      setExistingRating(null)
 
       if (onRatingSubmitted) {
         onRatingSubmitted()
