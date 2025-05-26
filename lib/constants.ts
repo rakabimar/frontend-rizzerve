@@ -26,7 +26,7 @@ export const API_URLS = {
   ORDER_SERVICE_URL: process.env.NEXT_PUBLIC_ORDER_SERVICE_URL || "http://localhost:8082",
   ORDER_API_URL: "/api/orders",
   CHECKOUT_API_URL: "/api/checkouts",
-}
+} as const
 
 export const USER_ROLES = {
   ADMIN: "ROLE_ADMIN",

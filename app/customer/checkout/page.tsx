@@ -4,7 +4,8 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Check, Trash2, Edit } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { ArrowLeft, Check, Trash2, Edit, Tag } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Separator } from "@/components/ui/separator"
@@ -33,6 +34,13 @@ export default function CheckoutPage() {
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null)
   const [customerRatings, setCustomerRatings] = useState<CustomerRating[]>([])
   const [loadingRatings, setLoadingRatings] = useState(false)
+  
+  // Coupon state
+  const [couponCode, setCouponCode] = useState<string>("")
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null)
+  const [discountedPrice, setDiscountedPrice] = useState<number | null>(null)
+  const [loadingCoupon, setLoadingCoupon] = useState(false)
+  
   const router = useRouter()
   const { toast } = useToast()
   const orderService = useOrderService()
@@ -203,6 +211,7 @@ export default function CheckoutPage() {
   }
 
   const totalPrice = cartItems.reduce((total, item) => total + item.price * item.quantity, 0)
+  const finalPrice = discountedPrice !== null ? discountedPrice : totalPrice
 
   const handleRatingSubmitted = () => {
     // Rating submitted successfully, refresh ratings
@@ -212,6 +221,98 @@ export default function CheckoutPage() {
     toast({
       title: "Rating submitted",
       description: "Thank you for your feedback!",
+    })
+  }
+
+  const handleUseCoupon = async () => {
+    if (!couponCode.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a coupon code",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setLoadingCoupon(true)
+    try {
+      // Step 1: First validate the coupon exists
+      const validateResponse = await fetch(`${API_URLS.COUPON_SERVICE_URL}/coupon/${couponCode}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!validateResponse.ok) {
+        throw new Error("Invalid Coupon")
+      }
+
+      // Step 2: Get coupon details and validate business rules
+      const couponData = await validateResponse.json()
+      
+      // Check if coupon is expired
+      const expirationDate = new Date(couponData.expiredAt)
+      const now = new Date()
+      if (now > expirationDate) {
+        throw new Error("Invalid Coupon")
+      }
+
+      // Check if coupon has quota available
+      if (couponData.usedCount >= couponData.quota) {
+        throw new Error("Invalid Coupon")
+      }
+
+      // Check minimum purchase requirement
+      if (totalPrice < couponData.minimumPurchase) {
+        throw new Error("Invalid Coupon")
+      }
+
+      // Step 3: If all validations pass, calculate the discount
+      const calculateResponse = await fetch(`${API_URLS.COUPON_SERVICE_URL}/coupon/${couponCode}/calculate?total=${totalPrice}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (calculateResponse.ok) {
+        const discountedTotal = await calculateResponse.json()
+        setDiscountedPrice(discountedTotal)
+        setAppliedCoupon(couponCode)
+        
+        const savings = totalPrice - discountedTotal
+        toast({
+          title: "Coupon applied!",
+          description: `You saved $${savings.toFixed(2)} with coupon ${couponCode}`,
+        })
+      } else {
+        throw new Error("Invalid Coupon")
+      }
+    } catch (error) {
+      console.error("Error applying coupon:", error)
+      
+      toast({
+        title: "Invalid Coupon",
+        description: "The coupon code you entered is not valid or cannot be applied to this order.",
+        variant: "destructive",
+      })
+      
+      // Reset coupon state on error
+      setDiscountedPrice(null)
+      setAppliedCoupon(null)
+    } finally {
+      setLoadingCoupon(false)
+    }
+  }
+
+  const handleRemoveCoupon = () => {
+    setCouponCode("")
+    setAppliedCoupon(null)
+    setDiscountedPrice(null)
+    toast({
+      title: "Coupon removed",
+      description: "Coupon has been removed from your order",
     })
   }
 
@@ -247,10 +348,42 @@ export default function CheckoutPage() {
         await orderService.addItemToOrder(realOrderId, cartItem.id, cartItem.quantity)
       }
 
-      // Step 2: Confirm the order (changes status to PROCESSING)
+      // Step 2: Apply coupon if one was used (increment counter)
+      let finalOrderTotal = totalPrice
+      if (appliedCoupon) {
+        try {
+          const applyResponse = await fetch(`${API_URLS.COUPON_SERVICE_URL}/coupon/${appliedCoupon}/apply?total=${totalPrice}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          })
+
+          if (applyResponse.ok) {
+            finalOrderTotal = await applyResponse.json()
+            console.log(`Coupon ${appliedCoupon} applied successfully. Final total: $${finalOrderTotal}`)
+          } else {
+            console.warn("Failed to apply coupon during checkout, proceeding with original price")
+            toast({
+              title: "Coupon Warning",
+              description: "Coupon could not be applied during checkout, but your order will proceed at the original price.",
+              variant: "destructive",
+            })
+          }
+        } catch (couponError) {
+          console.error("Error applying coupon during checkout:", couponError)
+          toast({
+            title: "Coupon Warning", 
+            description: "Coupon service is unavailable, but your order will proceed at the original price.",
+            variant: "destructive",
+          })
+        }
+      }
+
+      // Step 3: Confirm the order (changes status to PROCESSING)
       await orderService.confirmOrder(realOrderId)
 
-      // Step 3: Checkout the meja in rating service to disable further rating updates
+      // Step 4: Checkout the meja in rating service to disable further rating updates
       try {
         const checkoutResponse = await fetch(`${API_URLS.RATING_SERVICE_URL}${API_URLS.RATING_API_URL}/meja/${realOrderId}/checkout`, {
           method: "PUT",
@@ -278,7 +411,9 @@ export default function CheckoutPage() {
 
       toast({
         title: "Order confirmed successfully",
-        description: "Your order is being prepared in the kitchen",
+        description: appliedCoupon 
+          ? `Your order is being prepared. Final total: $${finalOrderTotal.toFixed(2)} (coupon applied)`
+          : "Your order is being prepared in the kitchen",
       })
     } catch (error) {
       console.error("Error confirming order:", error)
@@ -421,6 +556,57 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
+          {/* Coupon Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Tag className="h-5 w-5" />
+                Apply Coupon
+              </CardTitle>
+              <CardDescription>
+                Enter a coupon code to get a discount on your order
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {appliedCoupon ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div>
+                      <p className="font-medium text-green-800">Coupon Applied: {appliedCoupon}</p>
+                      <p className="text-sm text-green-600">
+                        You saved ${(totalPrice - finalPrice).toFixed(2)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRemoveCoupon}
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Enter coupon code"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    disabled={loadingCoupon}
+                  />
+                  <Button
+                    onClick={handleUseCoupon}
+                    disabled={loadingCoupon || !couponCode.trim()}
+                    className="bg-rose-600 hover:bg-rose-700"
+                  >
+                    {loadingCoupon ? "Validating..." : "Use Coupon"}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Order Summary Section */}
           <Card>
             <CardHeader>
@@ -442,9 +628,24 @@ export default function CheckoutPage() {
 
               <div className="space-y-2">
                 <Separator className="my-2" />
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span>${totalPrice.toFixed(2)}</span>
+                </div>
+                {appliedCoupon && (
+                  <>
+                    <div className="flex justify-between text-green-600">
+                      <span>Discount ({appliedCoupon})</span>
+                      <span>-${(totalPrice - finalPrice).toFixed(2)}</span>
+                    </div>
+                    <Separator className="my-2" />
+                  </>
+                )}
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total</span>
-                  <span>${totalPrice.toFixed(2)}</span>
+                  <span className={appliedCoupon ? "text-green-600" : ""}>
+                    ${finalPrice.toFixed(2)}
+                  </span>
                 </div>
               </div>
             </CardContent>
