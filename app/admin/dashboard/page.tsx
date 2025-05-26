@@ -152,10 +152,10 @@ export default function AdminDashboardPage() {
                   <CardTitle>Menu Items</CardTitle>
                   <CardDescription>Add, edit, or remove menu items</CardDescription>
                 </div>
-                <MenuItemsActions />
+                <MenuItemsActions onSuccess={refreshTables} />
               </CardHeader>
               <CardContent>
-                <MenuItemsTable />
+                <MenuItemsTable refreshTrigger={0} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -229,7 +229,7 @@ function DashboardCard({
   )
 }
 
-function MenuItemsActions() {
+function MenuItemsActions({ onSuccess }: { onSuccess: () => void }) {
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
@@ -241,15 +241,15 @@ function MenuItemsActions() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={() => {
-          // This will be called after successful form submission
-          // We'll handle refreshing the menu items list here
+          onSuccess() // Call the refresh function
+          setDialogOpen(false)
         }}
       />
     </>
   )
 }
 
-function MenuItemsTable() {
+function MenuItemsTable({ refreshTrigger }: { refreshTrigger: number }) {
   const { toast } = useToast()
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -258,6 +258,10 @@ function MenuItemsTable() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | undefined>(undefined)
 
+  // Use a ref to avoid double fetching on initial mount
+  const initialFetchCompleted = useRef(false)
+
+  // Define fetchMenuItems outside of useEffect
   const fetchMenuItems = async () => {
     setLoading(true)
     try {
@@ -285,9 +289,21 @@ function MenuItemsTable() {
     }
   }
 
+  // Initial fetch on mount
   useEffect(() => {
-    fetchMenuItems()
+    if (!initialFetchCompleted.current) {
+      fetchMenuItems()
+      initialFetchCompleted.current = true
+    }
   }, [])
+
+  // Fetch when refresh trigger changes
+  useEffect(() => {
+    // Skip the initial mount since we already fetched above
+    if (initialFetchCompleted.current && refreshTrigger > 0) {
+      fetchMenuItems()
+    }
+  }, [refreshTrigger])
 
   const handleEdit = (menuItem: MenuItem) => {
     setSelectedMenuItem(menuItem)
@@ -304,6 +320,32 @@ function MenuItemsTable() {
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.description.toLowerCase().includes(searchTerm.toLowerCase()),
   )
+
+  // Helper function to determine menu item type
+  const getMenuItemType = (item: MenuItem): string => {
+    if ('isSpicy' in item) return "FOOD";
+    if ('isCold' in item) return "DRINK";
+    return "UNKNOWN";
+  }
+
+  // Helper function to get appropriate badge for the menu type
+  const getMenuTypeBadge = (item: MenuItem) => {
+    const type = getMenuItemType(item);
+    
+    return (
+      <Badge 
+        variant="outline" 
+        className={type === "FOOD" 
+          ? "bg-amber-50 text-amber-700 border-amber-200" 
+          : type === "DRINK" 
+            ? "bg-blue-50 text-blue-700 border-blue-200" 
+            : "bg-gray-50 text-gray-700 border-gray-200"
+        }
+      >
+        {type}
+      </Badge>
+    );
+  };
 
   return (
     <div>
@@ -344,7 +386,7 @@ function MenuItemsTable() {
               <TableRow key={item.id}>
                 <TableCell className="font-medium">{item.name}</TableCell>
                 <TableCell>
-                  <Badge variant="outline">{item.type}</Badge>
+                  {getMenuTypeBadge(item)}
                 </TableCell>
                 <TableCell className="max-w-xs truncate">{item.description}</TableCell>
                 <TableCell>${item.price.toFixed(2)}</TableCell>
@@ -356,8 +398,8 @@ function MenuItemsTable() {
                   )}
                 </TableCell>
                 <TableCell>
-                  {item.type === "FOOD" && item.isSpicy && <Badge className="bg-red-100 text-red-800">Spicy</Badge>}
-                  {item.type === "DRINK" && item.isCold && <Badge className="bg-blue-100 text-blue-800">Cold</Badge>}
+                  {'isSpicy' in item && item.isSpicy && <Badge className="bg-red-100 text-red-800">Spicy</Badge>}
+                  {'isCold' in item && item.isCold && <Badge className="bg-blue-100 text-blue-800">Cold</Badge>}
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">

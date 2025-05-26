@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast"
 import { API_URLS } from "@/lib/constants"
 import type { MenuItem, MenuItemRequest } from "@/types/menu"
+import { useAuth } from "@/context/auth-context"
 
 // Define the form schema with Zod
 const formSchema = z.object({
@@ -28,6 +29,15 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>
 
+// Helper function to determine menu type based on item properties
+const determineMenuType = (item: MenuItem): "FOOD" | "DRINK" => {
+  if ("isSpicy" in item) return "FOOD"
+  if ("isCold" in item) return "DRINK"
+
+  // Default to FOOD if we can't determine
+  return "FOOD"
+}
+
 interface MenuItemFormProps {
   menuItem?: MenuItem
   onSuccess: () => void
@@ -36,24 +46,8 @@ interface MenuItemFormProps {
 
 export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItemFormProps) {
   const { toast } = useToast()
+  const { user } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [authToken, setAuthToken] = useState<string | null>(null)
-
-  useEffect(() => {
-    // Get the auth token from localStorage - check for the token that update uses
-    const token = localStorage.getItem("auth_token")
-    console.log("Auth token retrieved:", token ? "Token exists" : "No token found")
-    setAuthToken(token)
-  }, [])
-
-  // Helper function to determine menu type based on item properties
-  const determineMenuType = (item: MenuItem): "FOOD" | "DRINK" => {
-    if ('isSpicy' in item) return "FOOD";
-    if ('isCold' in item) return "DRINK";
-    
-    // Default to FOOD if we can't determine
-    return "FOOD";
-  }
 
   // Initialize the form with default values or existing menu item values
   const form = useForm<FormValues>({
@@ -63,8 +57,8 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
           name: menuItem.name,
           description: menuItem.description,
           price: menuItem.price,
-          menuType: determineMenuType(menuItem), // Use helper function to determine type
-          available: menuItem.available !== undefined ? menuItem.available : true,
+          menuType: determineMenuType(menuItem),
+          available: menuItem.available, // Use nullish coalescing instead of !== undefined
           isSpicy: menuItem.isSpicy || false,
           isCold: menuItem.isCold || false,
           image: menuItem.image || "",
@@ -85,7 +79,7 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
   const menuType = form.watch("menuType")
 
   const onSubmit = async (data: FormValues) => {
-    if (!authToken) {
+    if (!user?.token) {
       toast({
         title: "Authentication Error",
         description: "You must be logged in to perform this action",
@@ -97,20 +91,20 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
     setIsSubmitting(true)
 
     try {
-      // Prepare the request body
+      // Prepare the request body - ensure available field is explicitly included
       const requestBody: MenuItemRequest = {
         name: data.name,
         description: data.description,
         price: data.price,
-        available: data.available,
+        available: Boolean(data.available), // Explicitly convert to boolean
         image: data.image || "",
       }
 
       // Add type-specific fields
       if (data.menuType === "FOOD") {
-        requestBody.isSpicy = data.isSpicy
+        requestBody.isSpicy = data.isSpicy || false
       } else if (data.menuType === "DRINK") {
-        requestBody.isCold = data.isCold
+        requestBody.isCold = data.isCold || false
       }
 
       let url = `${API_URLS.MENU_SERVICE_URL}${API_URLS.MENU_API_URL}`
@@ -121,33 +115,30 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
         url = `${url}/${menuItem.id}`
         method = "PUT"
       } else {
-        // If creating a new item, add the menuType query parameter 
-        // - use the same base URL pattern as update
+        // If creating a new item, add the menuType query parameter
         url = `${url}?menuType=${data.menuType}`
       }
 
-      console.log(`${menuItem ? 'Updating' : 'Creating'} menu item:`, {
+      console.log(`${menuItem ? "Updating" : "Creating"} menu item:`, {
         url,
         method,
         requestBody,
-        authToken: authToken ? 'Token exists' : 'No token'
-      });
+        authToken: user.token ? "Token exists" : "No token",
+      })
 
       const response = await fetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${user.token}`,
         },
         body: JSON.stringify(requestBody),
       })
 
-      console.log("Response status:", response.status);
-
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Error response:", errorText);
-        throw new Error(errorText || `Failed to ${menuItem ? 'update' : 'create'} menu item (${response.status})`);
+        const errorText = await response.text()
+        console.error("Server error response:", errorText)
+        throw new Error(errorText || "Failed to save menu item")
       }
 
       toast({
@@ -157,10 +148,10 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
 
       onSuccess()
     } catch (error) {
-      console.error(`Error ${menuItem ? 'updating' : 'creating'} menu item:`, error)
+      console.error("Error saving menu item:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : `Failed to ${menuItem ? 'update' : 'create'} menu item`,
+        description: error instanceof Error ? error.message : "Failed to save menu item",
         variant: "destructive",
       })
     } finally {
@@ -179,7 +170,7 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
               <FormLabel>Menu Type</FormLabel>
               <Select
                 onValueChange={field.onChange}
-                value={field.value} // Ensure value is set properly
+                defaultValue={field.value}
                 disabled={!!menuItem} // Disable if editing an existing item
               >
                 <FormControl>
@@ -194,7 +185,7 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
               </Select>
               <FormDescription>
                 {menuItem
-                  ? `This is a ${field.value.toLowerCase()} item (cannot be changed after creation)`
+                  ? "Menu type cannot be changed after creation"
                   : "Select whether this is a food or drink item"}
               </FormDescription>
               <FormMessage />
@@ -250,7 +241,13 @@ export default function MenuItemForm({ menuItem, onSuccess, onCancel }: MenuItem
           render={({ field }) => (
             <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
               <FormControl>
-                <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                <Checkbox 
+                  checked={field.value} 
+                  onCheckedChange={(checked) => {
+                    field.onChange(checked)
+                    console.log("Available field changed to:", checked) // Debug log
+                  }} 
+                />
               </FormControl>
               <div className="space-y-1 leading-none">
                 <FormLabel>Available</FormLabel>
